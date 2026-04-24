@@ -1,59 +1,70 @@
 /**
- * service-worker.js — CNR Seguimiento PWA
- * Estrategia: Cache First para assets, Network First para API
+ * service-worker.js — CNR PWA (Seguimiento + Ficha Visita Terreno)
+ * Estrategia: Cache First para assets locales, pass-through para APIs
+ * v2 — Agrega rutas cnr-ficha_visita
  */
 
 'use strict';
 
-const CACHE_NAME    = 'cnr-seguimiento-v1';
-const OFFLINE_URLS  = [
-  '/',
-  '/index.html',
-  '/css/styles.css',
-  '/js/app.js',
-  '/js/camera.js',
-  '/manifest.json',
-  'https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap',
+const CACHE_NAME   = 'cnr-app-v2';
+const OFFLINE_URLS = [
+  // ── Ficha Seguimiento (ya existente) ──
+  '/cnr-seguimiento/',
+  '/cnr-seguimiento/index.html',
+  '/cnr-seguimiento/css/styles.css',
+  '/cnr-seguimiento/js/app.js',
+  '/cnr-seguimiento/js/camera.js',
+  '/cnr-seguimiento/manifest.json',
+  '/cnr-seguimiento/icons/icon-192.png',
+  '/cnr-seguimiento/icons/icon-512.png',
+
+  // ── Ficha Visita Terreno (nueva) ──
+  '/cnr-ficha_visita/',
+  '/cnr-ficha_visita/index.html',
+  '/cnr-ficha_visita/styles_demanda.css',
+  '/cnr-ficha_visita/app_demanda.js',
+  '/cnr-ficha_visita/manifest_demanda.json',
 ];
 
-/* ── Instalación: pre-cachear assets ────────────────────── */
+/* ── Instalación ─────────────────────────────────────── */
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
-      // Cachear archivos locales (ignorar errores en Google Fonts offline)
-      const localUrls = OFFLINE_URLS.filter(url => !url.startsWith('http'));
-      return cache.addAll(localUrls).catch(err => {
-        console.warn('[SW] Algunos recursos no se cachearon:', err);
+      return cache.addAll(OFFLINE_URLS).catch(err => {
+        console.warn('[SW] Algunos recursos no cacheados:', err);
       });
     }).then(() => self.skipWaiting())
   );
 });
 
-/* ── Activación: limpiar caches viejos ──────────────────── */
+/* ── Activación: limpiar caches anteriores ───────────── */
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys().then((keys) =>
       Promise.all(
         keys
           .filter(key => key !== CACHE_NAME)
-          .map(key => caches.delete(key))
+          .map(key => {
+            console.log('[SW] Eliminando cache antiguo:', key);
+            return caches.delete(key);
+          })
       )
     ).then(() => self.clients.claim())
   );
 });
 
-/* ── Fetch: Cache First para assets locales ─────────────── */
+/* ── Fetch: Cache First para assets locales ──────────── */
 self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
 
-  // Ignorar peticiones a APIs externas (Google Drive, OAuth)
+  // Pass-through para APIs externas y métodos no-GET
   if (
     url.hostname.includes('googleapis.com') ||
     url.hostname.includes('accounts.google.com') ||
     url.hostname.includes('gstatic.com') ||
     event.request.method !== 'GET'
   ) {
-    return; // deja que el navegador maneje normalmente
+    return;
   }
 
   event.respondWith(
@@ -62,46 +73,32 @@ self.addEventListener('fetch', (event) => {
 
       return fetch(event.request)
         .then((response) => {
-          // Cachear solo respuestas válidas de assets locales
           if (
             response &&
             response.status === 200 &&
             response.type !== 'opaque' &&
-            (url.pathname.includes('/css/') ||
-             url.pathname.includes('/js/') ||
-             url.pathname === '/' ||
-             url.pathname.endsWith('.html') ||
-             url.pathname.endsWith('.json') ||
-             url.pathname.endsWith('.png') ||
-             url.pathname.endsWith('.svg'))
+            (url.pathname.includes('/cnr-seguimiento/') ||
+             url.pathname.includes('/cnr-ficha_visita/'))
           ) {
-            const responseToCache = response.clone();
-            caches.open(CACHE_NAME).then((cache) => {
-              cache.put(event.request, responseToCache);
-            });
+            const clone = response.clone();
+            caches.open(CACHE_NAME).then(cache => cache.put(event.request, clone));
           }
           return response;
         })
         .catch(() => {
-          // Sin conexión y sin cache: retornar página offline básica
           if (event.request.mode === 'navigate') {
-            return caches.match('/index.html');
+            // Intentar la raíz de la app correspondiente
+            if (url.pathname.includes('/cnr-ficha_visita/')) {
+              return caches.match('/cnr-ficha_visita/index.html');
+            }
+            return caches.match('/cnr-seguimiento/index.html');
           }
         });
     })
   );
 });
 
-/* ── Background Sync (soporte limitado en Android Chrome) ── */
-self.addEventListener('sync', (event) => {
-  if (event.tag === 'cnr-sync') {
-    // La sincronización real se maneja en app.js via online event
-    // Este handler existe para compatibilidad futura
-    event.waitUntil(Promise.resolve());
-  }
-});
-
-/* ── Mensajes desde la app ──────────────────────────────── */
+/* ── Mensajes desde la app ───────────────────────────── */
 self.addEventListener('message', (event) => {
   if (event.data?.type === 'SKIP_WAITING') {
     self.skipWaiting();

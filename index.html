@@ -1,684 +1,807 @@
-/**
- * app.js — Lógica principal CNR Seguimiento PWA
- * IndexedDB · Exportación JSON/CSV · Google Drive OAuth2
- * v2.0 — Fechas ISO, rutas relativas fotos, exportar todos, indicador modificación
- */
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="theme-color" content="#0057A8">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="CNR Seguimiento">
+  <meta name="description" content="Ficha digital de seguimiento de proyectos de riego CNR Ley 18.450">
 
-'use strict';
+  <title>CNR Seguimiento — Ficha Digital</title>
 
-/* ══════════════════════════════════════════════════════════
-   CONFIGURACIÓN
-   ══════════════════════════════════════════════════════════ */
-const CONFIG = {
-  GOOGLE_CLIENT_ID:  '353831203919-9uf4jmk8he5df4dvvpdoq0dle1jmeiju.apps.googleusercontent.com',
-  DRIVE_FOLDER_NAME: 'CNR_Seguimiento',
-  DB_NAME:           'cnr_seguimiento',
-  DB_VERSION:        1,
-  STORE_NAME:        'registros',
-  TIPO_FICHA:        'Seguimiento CNR',
-};
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
 
-/* ══════════════════════════════════════════════════════════
-   ESTADO GLOBAL
-   ══════════════════════════════════════════════════════════ */
-const State = {
-  db:            null,
-  currentRecord: null,
-  records:       [],
-  isOnline:      navigator.onLine,
-  isSyncing:     false,
-  driveToken:    null,
-  installPrompt: null,
-};
+<!-- ── Banner de instalación PWA ──────────────────────── -->
+<div id="install-banner" class="install-banner">
+  <span>📱 Instale la app para usarla sin conexión en su tablet</span>
+  <button id="install-btn">Instalar</button>
+</div>
 
-/* ══════════════════════════════════════════════════════════
-   MODELO DE DATOS
-   ══════════════════════════════════════════════════════════ */
-function createEmptyRecord() {
-  const today = dateToISO(new Date());
-  return {
-    _id:                     crypto.randomUUID(),
-    _created:                new Date().toISOString(),
-    _modified:               new Date().toISOString(),
-    _modified_count:         0,
-    _synced:                 false,
-    _syncedAt:               null,
-    tipo_ficha:              CONFIG.TIPO_FICHA,
-
-    codigo_proyecto:         '',
-    nro_concurso:            '',
-    fecha_recepcion:         '',
-    beneficiario:            '',
-    predio:                  '',
-    roles_avaluo:            '',
-    comuna:                  '',
-    provincia:               '',
-    region:                  'Ñuble',
-    utm_este:                '',
-    utm_norte:               '',
-    utm_datum:               'WGS 84',
-    utm_huso:                '19',
-    fecha_pago:              '',
-    nro_bono:                '',
-    fecha_visita:            today,
-
-    cultivo_inicial:         '',
-    cultivo_actual:          '',
-
-    antecedentes:            [''],
-    observaciones_tecnicas:  '',
-    tiempo_funcionamiento:   '',
-    observaciones_generales: [''],
-    cumple_objetivo:         '',
-
-    fotos:                   [],
-  };
-}
-
-/* ══════════════════════════════════════════════════════════
-   UTILIDADES DE FECHA
-   Internamente: AAAA-MM-DD · Formulario: DD/MM/AAAA
-   ══════════════════════════════════════════════════════════ */
-function dateToISO(d) {
-  if (!d || isNaN(d)) return '';
-  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-}
-
-function displayToISO(str) {
-  if (!str) return '';
-  const p = str.split('/');
-  if (p.length !== 3 || p[2].length !== 4) return str;
-  return `${p[2]}-${p[1].padStart(2,'0')}-${p[0].padStart(2,'0')}`;
-}
-
-function isoToDisplay(str) {
-  if (!str) return '';
-  const p = str.split('-');
-  if (p.length !== 3) return str;
-  return `${p[2]}/${p[1]}/${p[0]}`;
-}
-
-/* ══════════════════════════════════════════════════════════
-   INDEXEDDB
-   ══════════════════════════════════════════════════════════ */
-function openDB() {
-  return new Promise((resolve, reject) => {
-    const req = indexedDB.open(CONFIG.DB_NAME, CONFIG.DB_VERSION);
-    req.onupgradeneeded = (e) => {
-      const db = e.target.result;
-      if (!db.objectStoreNames.contains(CONFIG.STORE_NAME)) {
-        const store = db.createObjectStore(CONFIG.STORE_NAME, { keyPath: '_id' });
-        store.createIndex('codigo_proyecto', 'codigo_proyecto', { unique: false });
-        store.createIndex('beneficiario',    'beneficiario',    { unique: false });
-        store.createIndex('_synced',         '_synced',         { unique: false });
-      }
-    };
-    req.onsuccess = (e) => resolve(e.target.result);
-    req.onerror   = (e) => reject(e.target.error);
-  });
-}
-
-function dbGetAll() {
-  return new Promise((resolve, reject) => {
-    const tx  = State.db.transaction(CONFIG.STORE_NAME, 'readonly');
-    const req = tx.objectStore(CONFIG.STORE_NAME).getAll();
-    req.onsuccess = (e) => resolve(e.target.result);
-    req.onerror   = (e) => reject(e.target.error);
-  });
-}
-
-function dbPut(record) {
-  return new Promise((resolve, reject) => {
-    const tx  = State.db.transaction(CONFIG.STORE_NAME, 'readwrite');
-    const req = tx.objectStore(CONFIG.STORE_NAME).put(record);
-    req.onsuccess = () => resolve();
-    req.onerror   = (e) => reject(e.target.error);
-  });
-}
-
-/* ══════════════════════════════════════════════════════════
-   GUARDAR / CARGAR REGISTROS
-   ══════════════════════════════════════════════════════════ */
-async function saveCurrentRecord() {
-  if (!State.currentRecord) return;
-  const isNew = State.currentRecord._modified_count === 0;
-  collectFormValues();
-  State.currentRecord._modified       = new Date().toISOString();
-  State.currentRecord._modified_count = (State.currentRecord._modified_count || 0) + 1;
-  State.currentRecord._synced         = false;
-  await dbPut(State.currentRecord);
-  State.records = await dbGetAll();
-  renderRecordsList();
-  showToast(isNew ? 'Ficha guardada ✓' : 'Ficha actualizada ✓', 'success');
-  if (State.isOnline) triggerSync();
-}
-
-function collectFormValues() {
-  const r = State.currentRecord;
-  const simpleFields = [
-    'codigo_proyecto','nro_concurso','beneficiario',
-    'predio','roles_avaluo','region',
-    'utm_este','utm_norte','utm_datum','utm_huso',
-    'nro_bono','cultivo_inicial','cultivo_actual',
-    'observaciones_tecnicas','tiempo_funcionamiento',
-  ];
-  simpleFields.forEach(field => {
-    const el = document.getElementById(`f_${field}`);
-    if (el) r[field] = el.value.trim();
-  });
-
-  const provEl = document.getElementById('f_provincia');
-  const comEl  = document.getElementById('f_comuna');
-  if (provEl) r.provincia = provEl.value;
-  if (comEl)  r.comuna    = comEl.value;
-
-  ['fecha_recepcion','fecha_visita','fecha_pago'].forEach(field => {
-    const el = document.getElementById(`f_${field}`);
-    if (el) r[field] = displayToISO(el.value.trim());
-  });
-
-  const cumpleChecked = document.querySelector('input[name="cumple_objetivo"]:checked');
-  r.cumple_objetivo = cumpleChecked ? cumpleChecked.value : '';
-
-  r.antecedentes            = collectDynamicList('antecedentes-list');
-  r.observaciones_generales = collectDynamicList('obs-generales-list');
-}
-
-function collectDynamicList(containerId) {
-  const container = document.getElementById(containerId);
-  if (!container) return [''];
-  const vals = Array.from(container.querySelectorAll('textarea'))
-    .map(ta => ta.value.trim()).filter(v => v.length > 0);
-  return vals.length ? vals : [''];
-}
-
-function loadRecordToForm(record) {
-  State.currentRecord = JSON.parse(JSON.stringify(record));
-
-  const simpleFields = [
-    'codigo_proyecto','nro_concurso','beneficiario',
-    'predio','roles_avaluo','region',
-    'utm_este','utm_norte','utm_datum','utm_huso',
-    'nro_bono','cultivo_inicial','cultivo_actual',
-    'observaciones_tecnicas','tiempo_funcionamiento',
-  ];
-  simpleFields.forEach(field => {
-    const el = document.getElementById(`f_${field}`);
-    if (el) el.value = record[field] || '';
-  });
-
-  ['fecha_recepcion','fecha_visita','fecha_pago'].forEach(field => {
-    const el = document.getElementById(`f_${field}`);
-    if (el) el.value = isoToDisplay(record[field] || '');
-  });
-
-  const provEl = document.getElementById('f_provincia');
-  if (provEl && record.provincia) {
-    provEl.value = record.provincia;
-    if (window.updateComunas) window.updateComunas(record.provincia);
-  }
-  setTimeout(() => {
-    const comEl = document.getElementById('f_comuna');
-    if (comEl && record.comuna) comEl.value = record.comuna;
-  }, 60);
-
-  const cumpleInput = document.querySelector(`input[name="cumple_objetivo"][value="${record.cumple_objetivo}"]`);
-  if (cumpleInput) { cumpleInput.checked = true; updateCumpleVisual(record.cumple_objetivo); }
-  else document.querySelectorAll('.cumple-option').forEach(o => o.classList.remove('selected'));
-
-  renderDynamicList('antecedentes-list',   record.antecedentes || ['']);
-  renderDynamicList('obs-generales-list',  record.observaciones_generales || ['']);
-  renderPhotos();
-
-  const idDisplay = document.getElementById('record-id-display');
-  if (idDisplay) {
-    const modCount = record._modified_count || 0;
-    const modLabel = modCount > 1
-      ? `<span class="mod-indicator">✱ Modificado ${modCount - 1}x · ${formatDateShort(record._modified)}</span>`
-      : '';
-    const syncLabel = record._synced ? '✓ Sync' : '⏳ Pendiente';
-    idDisplay.innerHTML = `<span style="opacity:.6">ID: ${record._id.split('-')[0]}</span> ${modLabel} <span>${syncLabel}</span>`;
-  }
-
-  document.getElementById('no-record-msg').style.display = 'none';
-  document.getElementById('form-wrapper').style.display  = 'flex';
-}
-
-/* ══════════════════════════════════════════════════════════
-   LISTAS DINÁMICAS
-   ══════════════════════════════════════════════════════════ */
-function renderDynamicList(containerId, items) {
-  const container = document.getElementById(containerId);
-  if (!container) return;
-  container.innerHTML = '';
-  (items.length ? items : ['']).forEach((text, i) => addDynamicItem(container, text, i + 1));
-}
-
-function addDynamicItem(container, text = '', number = null) {
-  const itemNum = number || container.querySelectorAll('.dynamic-item').length + 1;
-  const div     = document.createElement('div');
-  div.className = 'dynamic-item';
-  div.innerHTML = `
-    <div class="item-number">${itemNum}</div>
-    <textarea placeholder="Escriba aquí...">${escapeHtml(text)}</textarea>
-    <button class="item-remove" title="Eliminar ítem">✕</button>
-  `;
-  div.querySelector('.item-remove').addEventListener('click', () => {
-    div.remove();
-    container.querySelectorAll('.item-number').forEach((el, i) => { el.textContent = i + 1; });
-  });
-  container.appendChild(div);
-}
-
-/* ══════════════════════════════════════════════════════════
-   FOTOS
-   ══════════════════════════════════════════════════════════ */
-function renderPhotos() {
-  const container = document.getElementById('photos-grid');
-  const photos    = State.currentRecord?.fotos || [];
-  const counter   = document.getElementById('photo-counter');
-  if (counter) counter.textContent = `${photos.length} / ${CameraModule.MAX_PHOTOS} fotos`;
-  CameraModule.renderPhotoGrid(photos, container,
-    (id) => { State.currentRecord.fotos = State.currentRecord.fotos.filter(f => f.id !== id); renderPhotos(); },
-    (id, caption) => { const f = State.currentRecord.fotos.find(f => f.id === id); if (f) f.caption = caption; }
-  );
-}
-
-function addPhoto(photoObj) {
-  if (!State.currentRecord) return;
-  State.currentRecord.fotos = State.currentRecord.fotos || [];
-  State.currentRecord.fotos.push(photoObj);
-  renderPhotos();
-  showToast(`Foto agregada (${Math.round(photoObj.sizeKB)} KB)`, 'success');
-}
-
-/* ══════════════════════════════════════════════════════════
-   GEOLOCALIZACIÓN Y UTM
-   ══════════════════════════════════════════════════════════ */
-function getGeoLocation() {
-  if (!navigator.geolocation) { showToast('GPS no disponible', 'error'); return; }
-  showToast('Obteniendo ubicación GPS…', 'info');
-  navigator.geolocation.getCurrentPosition(
-    (pos) => {
-      const { easting, northing } = latLonToUTM(pos.coords.latitude, pos.coords.longitude);
-      document.getElementById('f_utm_este').value  = easting.toFixed(0);
-      document.getElementById('f_utm_norte').value = northing.toFixed(0);
-      if (State.currentRecord) {
-        State.currentRecord.utm_este  = easting.toFixed(0);
-        State.currentRecord.utm_norte = northing.toFixed(0);
-      }
-      showToast('Coordenadas GPS obtenidas ✓', 'success');
-    },
-    (err) => { showToast('No se pudo obtener la ubicación', 'error'); console.error(err); },
-    { enableHighAccuracy: true, timeout: 15000 }
-  );
-}
-
-function latLonToUTM(lat, lon) {
-  const a=6378137.0, f=1/298.257223563, b=a*(1-f), e2=1-(b*b)/(a*a), k0=0.9996;
-  const latR=(lat*Math.PI)/180, lonR=(lon*Math.PI)/180, lon0R=(-69*Math.PI)/180;
-  const N=a/Math.sqrt(1-e2*Math.sin(latR)**2), T=Math.tan(latR)**2;
-  const C=(e2/(1-e2))*Math.cos(latR)**2, A=Math.cos(latR)*(lonR-lon0R);
-  const e4=e2*e2, e6=e4*e2;
-  const M=a*((1-e2/4-3*e4/64-5*e6/256)*latR-(3*e2/8+3*e4/32+45*e6/1024)*Math.sin(2*latR)+(15*e4/256+45*e6/1024)*Math.sin(4*latR)-(35*e6/3072)*Math.sin(6*latR));
-  const easting=k0*N*(A+(1-T+C)*A**3/6+(5-18*T+T**2+72*C-58*(e2/(1-e2)))*A**5/120)+500000;
-  let northing=k0*(M+N*Math.tan(latR)*(A**2/2+(5-T+9*C+4*C**2)*A**4/24+(61-58*T+T**2+600*C-330*(e2/(1-e2)))*A**6/720));
-  if (lat<0) northing+=10000000;
-  return { easting, northing };
-}
-
-/* ══════════════════════════════════════════════════════════
-   CONSTRUCCIÓN CSV
-   ══════════════════════════════════════════════════════════ */
-function csvHeaders() {
-  return [
-    'Tipo Ficha',
-    'Código Proyecto','N° Concurso','Fecha Recepción Técnica',
-    'Beneficiario','Predio','Rol(es) de Avalúo',
-    'Comuna','Provincia','Región',
-    'UTM Este','UTM Norte','UTM Datum','UTM Huso',
-    'Fecha de Pago','N° Bono','Fecha de Visita',
-    'Cultivo Inicial','Cultivo Actual',
-    'Antecedentes','Observaciones Técnicas',
-    'Tiempo Funcionamiento Obra (años)',
-    'Observaciones Generales','Cumple con el Objetivo',
-    'Ruta Foto 1','Pie de Foto 1',
-    'Ruta Foto 2','Pie de Foto 2',
-    'Ruta Foto 3','Pie de Foto 3',
-    'Ruta Foto 4','Pie de Foto 4',
-    'Ruta Foto 5','Pie de Foto 5',
-    'ID Registro','Fecha Creación','Fecha Modificación',
-    'Veces Modificado','Sincronizado',
-  ];
-}
-
-function recordToRow(r) {
-  const codigo = r.codigo_proyecto || r._id.split('-')[0];
-  const fCols  = [];
-  for (let i = 0; i < 5; i++) {
-    const f = (r.fotos || [])[i];
-    fCols.push(f ? `Fotos\\${codigo}\\${CameraModule.getFilenameForDrive(i)}` : '');
-    fCols.push(f ? (f.caption || '') : '');
-  }
-  return [
-    r.tipo_ficha || CONFIG.TIPO_FICHA,
-    r.codigo_proyecto, r.nro_concurso, r.fecha_recepcion,
-    r.beneficiario, r.predio, r.roles_avaluo,
-    r.comuna, r.provincia, r.region,
-    r.utm_este, r.utm_norte, r.utm_datum, r.utm_huso,
-    r.fecha_pago, r.nro_bono, r.fecha_visita,
-    r.cultivo_inicial, r.cultivo_actual,
-    (r.antecedentes||[]).map((a,i)=>`${i+1}) ${a}`).join(' | '),
-    r.observaciones_tecnicas,
-    r.tiempo_funcionamiento,
-    (r.observaciones_generales||[]).map((o,i)=>`${i+1}) ${o}`).join(' | '),
-    r.cumple_objetivo,
-    ...fCols,
-    r._id, r._created, r._modified,
-    r._modified_count || 0,
-    r._synced ? 'SÍ' : 'NO',
-  ];
-}
-
-function buildCSV(records) {
-  const rows = [csvHeaders(), ...records.map(recordToRow)].map(r => r.map(csvEscape).join(','));
-  return '\uFEFF' + rows.join('\r\n');
-}
-
-function csvEscape(val) {
-  const s = val == null ? '' : String(val);
-  return (s.includes(',') || s.includes('"') || s.includes('\n') || s.includes('\r'))
-    ? `"${s.replace(/"/g,'""')}"` : s;
-}
-
-/* ══════════════════════════════════════════════════════════
-   EXPORTACIÓN
-   ══════════════════════════════════════════════════════════ */
-function downloadBlob(blob, filename) {
-  const url = URL.createObjectURL(blob);
-  Object.assign(document.createElement('a'), { href: url, download: filename }).click();
-  URL.revokeObjectURL(url);
-}
-
-function exportCSV(record) {
-  collectFormValues();
-  downloadBlob(
-    new Blob([buildCSV([record])], { type: 'text/csv;charset=utf-8;' }),
-    `CNR_${record.codigo_proyecto || record._id.split('-')[0]}_seguimiento.csv`
-  );
-  showToast('CSV exportado ✓', 'success');
-}
-
-function exportAllCSV() {
-  if (!State.records.length) { showToast('No hay registros para exportar', 'error'); return; }
-  downloadBlob(
-    new Blob([buildCSV(State.records)], { type: 'text/csv;charset=utf-8;' }),
-    `CNR_Seguimiento_Todos_${dateToISO(new Date())}.csv`
-  );
-  showToast(`${State.records.length} registros exportados ✓`, 'success');
-}
-
-function exportJSON(record) {
-  collectFormValues();
-  const data  = JSON.parse(JSON.stringify(record));
-  const codigo = record.codigo_proyecto || record._id.split('-')[0];
-  data.fotos  = (record.fotos||[]).map((f,i) => ({
-    numero: i+1,
-    filename: CameraModule.getFilenameForDrive(i),
-    ruta_access: `Fotos\\${codigo}\\${CameraModule.getFilenameForDrive(i)}`,
-    caption: f.caption||'', timestamp: f.timestamp, sizeKB: f.sizeKB,
-  }));
-  downloadBlob(
-    new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }),
-    `CNR_${codigo}_seguimiento.json`
-  );
-  showToast('JSON exportado ✓', 'success');
-}
-
-/* ══════════════════════════════════════════════════════════
-   GOOGLE DRIVE
-   ══════════════════════════════════════════════════════════ */
-function initGoogleAuth() {
-  if (document.getElementById('gsi-script')) return;
-  const s = document.createElement('script');
-  s.id='gsi-script'; s.src='https://accounts.google.com/gsi/client';
-  s.async=true; s.defer=true;
-  document.head.appendChild(s);
-}
-
-function requestDriveToken() {
-  return new Promise((resolve, reject) => {
-    if (!window.google) { reject(new Error('Google Identity Services no cargado')); return; }
-    google.accounts.oauth2.initTokenClient({
-      client_id: CONFIG.GOOGLE_CLIENT_ID,
-      scope: 'https://www.googleapis.com/auth/drive.file',
-      callback: (r) => r.error ? reject(new Error(r.error)) : (State.driveToken = r.access_token, resolve(r.access_token)),
-    }).requestAccessToken({ prompt: '' });
-  });
-}
-
-async function driveGetOrCreateFolder(token, name, parentId = null) {
-  const q   = `name='${name}' and mimeType='application/vnd.google-apps.folder'${parentId?` and '${parentId}' in parents`:''} and trashed=false`;
-  const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&fields=files(id)`,
-    { headers: { Authorization: `Bearer ${token}` } });
-  const d   = await res.json();
-  if (d.files?.length) return d.files[0].id;
-  const body = { name, mimeType: 'application/vnd.google-apps.folder', ...(parentId && { parents:[parentId] }) };
-  const cr   = await fetch('https://www.googleapis.com/drive/v3/files',
-    { method:'POST', headers:{ Authorization:`Bearer ${token}`, 'Content-Type':'application/json' }, body:JSON.stringify(body) });
-  return (await cr.json()).id;
-}
-
-async function driveUploadFile(token, folderId, filename, blob, mimeType) {
-  const q   = `name='${filename}' and '${folderId}' in parents and trashed=false`;
-  const sr  = await fetch(`https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&fields=files(id)`,
-    { headers:{ Authorization:`Bearer ${token}` } });
-  const sd  = await sr.json();
-  const eid = sd.files?.[0]?.id;
-  const meta = JSON.stringify({ name:filename, ...(!eid && { parents:[folderId] }) });
-  const form = new FormData();
-  form.append('metadata', new Blob([meta], { type:'application/json' }));
-  form.append('file', blob);
-  const url = eid
-    ? `https://www.googleapis.com/upload/drive/v3/files/${eid}?uploadType=multipart`
-    : 'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart';
-  return fetch(url, { method: eid?'PATCH':'POST', headers:{ Authorization:`Bearer ${token}` }, body:form });
-}
-
-async function syncRecord(record, token) {
-  const rootId    = await driveGetOrCreateFolder(token, CONFIG.DRIVE_FOLDER_NAME);
-  const projectId = await driveGetOrCreateFolder(token, record.codigo_proyecto||'sin_codigo', rootId);
-  const codigo    = record.codigo_proyecto || record._id.split('-')[0];
-
-  await driveUploadFile(token, projectId, `${codigo}_seguimiento.csv`,
-    new Blob([buildCSV([record])], { type:'text/csv;charset=utf-8;' }), 'text/csv');
-
-  const jdata = JSON.parse(JSON.stringify(record));
-  jdata.fotos = (record.fotos||[]).map((f,i)=>({
-    numero:i+1, filename:CameraModule.getFilenameForDrive(i),
-    ruta_access:`Fotos\\${codigo}\\${CameraModule.getFilenameForDrive(i)}`,
-    caption:f.caption||'', timestamp:f.timestamp, sizeKB:f.sizeKB,
-  }));
-  await driveUploadFile(token, projectId, `${codigo}_seguimiento.json`,
-    new Blob([JSON.stringify(jdata,null,2)], { type:'application/json' }), 'application/json');
-
-  for (let i=0; i<(record.fotos||[]).length; i++) {
-    await driveUploadFile(token, projectId, CameraModule.getFilenameForDrive(i),
-      CameraModule.dataUrlToBlob(record.fotos[i].dataUrl), 'image/jpeg');
-  }
-}
-
-async function triggerSync() {
-  if (State.isSyncing || !State.isOnline) return;
-  const unsynced = State.records.filter(r => !r._synced);
-  if (!unsynced.length) return;
-  State.isSyncing = true;
-  updateSyncUI('syncing');
-  try {
-    const token = State.driveToken || await requestDriveToken();
-    for (const record of unsynced) {
-      await syncRecord(record, token);
-      record._synced = true; record._syncedAt = new Date().toISOString();
-      await dbPut(record);
-    }
-    State.records = await dbGetAll();
-    renderRecordsList();
-    showToast(`${unsynced.length} registro(s) sincronizado(s) ✓`, 'success');
-    updateSyncUI('online');
-  } catch (err) {
-    console.error('Sync error:', err);
-    showToast('Error al sincronizar. Intente manualmente.', 'error');
-    updateSyncUI('online');
-    if (err.message?.includes('401')) State.driveToken = null;
-  } finally {
-    State.isSyncing = false;
-  }
-}
-
-/* ══════════════════════════════════════════════════════════
-   UI
-   ══════════════════════════════════════════════════════════ */
-function renderRecordsList() {
-  const container = document.getElementById('records-list');
-  const searchVal = (document.getElementById('search-input')?.value||'').toLowerCase();
-  let filtered    = State.records.filter(r =>
-    !searchVal ||
-    (r.beneficiario||'').toLowerCase().includes(searchVal) ||
-    (r.codigo_proyecto||'').toLowerCase().includes(searchVal) ||
-    (r.nro_bono||'').toLowerCase().includes(searchVal)
-  ).sort((a,b) => new Date(b._modified)-new Date(a._modified));
-
-  if (!filtered.length) {
-    container.innerHTML = `<div class="empty-state"><div class="empty-icon">📋</div>
-      <h3>${searchVal?'Sin resultados':'Sin registros'}</h3>
-      <p>${searchVal?'Pruebe otro término':'Cree un registro con "Nueva Ficha"'}</p></div>`;
-    return;
-  }
-  container.innerHTML = '';
-  filtered.forEach(record => {
-    const isModified = (record._modified_count||0) > 1;
-    const card = document.createElement('div');
-    card.className = 'record-card' + (State.currentRecord?._id===record._id?' active':'');
-    card.innerHTML = `
-      <div class="record-card-code">
-        ${escapeHtml(record.codigo_proyecto||'Sin código')}
-        ${isModified?`<span class="mod-star" title="Modificado ${record._modified_count-1} vez/veces">✱</span>`:''}
-      </div>
-      <div class="record-card-name">${escapeHtml(record.beneficiario||'Sin beneficiario')}</div>
-      <div class="record-card-meta">
-        <span>${isoToDisplay(record.fecha_visita||'')}</span>
-        <span class="badge ${record._synced?'badge-synced':'badge-pending'}">${record._synced?'✓ Sync':'⏳ Local'}</span>
-        ${record.cumple_objetivo?`<span class="badge badge-${record.cumple_objetivo.toLowerCase()}">${record.cumple_objetivo}</span>`:''}
-      </div>
-      ${isModified?`<div class="record-card-moddate">Últ. modificación: ${formatDateShort(record._modified)}</div>`:''}
-    `;
-    card.addEventListener('click', () => { loadRecordToForm(record); renderRecordsList(); });
-    container.appendChild(card);
-  });
-}
-
-function updateSyncUI(state) {
-  const cfg = { online:{dot:'online',text:'En línea',btn:'Sincronizar'},
-                offline:{dot:'offline',text:'Sin conexión',btn:'Sin conexión'},
-                syncing:{dot:'syncing',text:'Sincronizando…',btn:'Sincronizando…'} }[state];
-  if (!cfg) return;
-  const dot=document.getElementById('status-dot'), text=document.getElementById('status-text'), btn=document.getElementById('sync-btn');
-  if (dot)  dot.className    = `status-dot ${cfg.dot}`;
-  if (text) text.textContent = cfg.text;
-  if (btn) {
-    btn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-      style="${state==='syncing'?'animation:spin 1s linear infinite':''}">
+<!-- ── Header ─────────────────────────────────────────── -->
+<header class="app-header">
+  <!-- Botón hamburguesa visible solo en tablet/móvil -->
+  <button id="hamburger-btn" class="hamburger-btn" title="Ver registros" aria-label="Abrir lista de registros">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+      <line x1="3" y1="6"  x2="21" y2="6"/>
+      <line x1="3" y1="12" x2="21" y2="12"/>
+      <line x1="3" y1="18" x2="21" y2="18"/>
+    </svg>
+  </button>
+  <div>
+    <div class="logo-text">CNR Seguimiento</div>
+    <div class="logo-sub">Ficha Digital · Ley 18.450</div>
+  </div>
+  <div class="header-spacer"></div>
+  <button id="sync-btn" class="sync-btn" title="Sincronizar con Google Drive">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
       <path d="M23 4v6h-6M1 20v-6h6"/>
       <path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/>
-    </svg>${cfg.btn}`;
-    btn.disabled = state==='syncing'||state==='offline';
-  }
-}
+    </svg>
+    Sincronizar
+  </button>
+</header>
 
-function updateCumpleVisual(value) {
-  document.querySelectorAll('.cumple-option').forEach(o=>o.classList.remove('selected'));
-  if (value) document.querySelector(`.cumple-option.${value.toLowerCase()}-opt`)?.classList.add('selected');
-}
+<!-- ── Status bar ─────────────────────────────────────── -->
+<div class="status-bar">
+  <span id="status-dot" class="status-dot"></span>
+  <span id="status-text">Verificando conexión…</span>
+  <span style="margin-left:auto;opacity:.6;font-size:.7rem;">
+    CNR · Comisión Nacional de Riego · Chile
+  </span>
+</div>
 
-function showToast(msg, type='info') {
-  const c = document.getElementById('toast-container');
-  if (!c) return;
-  const t = document.createElement('div');
-  t.className = `toast ${type}`;
-  t.textContent = `${{success:'✓',error:'✕',info:'ℹ'}[type]||''} ${msg}`;
-  c.appendChild(t);
-  setTimeout(()=>t.remove(), 3500);
-}
+<!-- ── Overlay oscuro para sidebar móvil ─────────────── -->
+<div id="sidebar-overlay" class="sidebar-overlay"></div>
 
-function escapeHtml(str) {
-  return String(str||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-}
+<!-- ── Layout principal ───────────────────────────────── -->
+<div class="main-layout">
 
-function formatDateShort(iso) {
-  if (!iso) return '';
-  try { return new Date(iso).toLocaleString('es-CL',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'}); }
-  catch { return iso; }
-}
+  <!-- Sidebar lista de registros -->
+  <aside class="records-sidebar" id="records-sidebar">
+    <div class="sidebar-header">
+      <div class="sidebar-title">📋 Registros</div>
+      <button class="new-record-btn" id="new-record-btn">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+          <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+        </svg>
+        Nueva Ficha
+      </button>
+      <input
+        type="search"
+        id="search-input"
+        class="search-input"
+        placeholder="Buscar por beneficiario, código…"
+        autocomplete="off"
+      >
+    </div>
+    <div class="records-list" id="records-list">
+      <!-- Registros generados por JS -->
+    </div>
+  </aside>
 
-/* ══════════════════════════════════════════════════════════
-   INICIALIZACIÓN
-   ══════════════════════════════════════════════════════════ */
-async function init() {
-  State.db      = await openDB();
-  State.records = await dbGetAll();
-  CameraModule.init(addPhoto);
-  initGoogleAuth();
-  window.addEventListener('cnr:toast', (e) => showToast(e.detail.msg, e.detail.type));
-  window.addEventListener('online',  () => { State.isOnline=true;  updateSyncUI('online');  triggerSync(); });
-  window.addEventListener('offline', () => { State.isOnline=false; updateSyncUI('offline'); });
-  updateSyncUI(State.isOnline ? 'online' : 'offline');
-  window.addEventListener('beforeinstallprompt', (e) => {
-    e.preventDefault(); State.installPrompt=e;
-    document.getElementById('install-banner')?.classList.add('visible');
-  });
-  renderRecordsList();
-  bindFormEvents();
-}
+  <!-- Área del formulario -->
+  <div class="form-area" id="form-area">
 
-function bindFormEvents() {
-  document.getElementById('new-record-btn')?.addEventListener('click', () => {
-    State.currentRecord = createEmptyRecord();
-    State.records.push(State.currentRecord);
-    loadRecordToForm(State.currentRecord);
-    renderRecordsList();
-  });
-  document.getElementById('save-btn')?.addEventListener('click', saveCurrentRecord);
-  document.getElementById('export-csv-btn')?.addEventListener('click', () => { if (State.currentRecord) exportCSV(State.currentRecord); });
-  document.getElementById('export-all-csv-btn')?.addEventListener('click', exportAllCSV);
-  document.getElementById('export-json-btn')?.addEventListener('click', () => { if (State.currentRecord) exportJSON(State.currentRecord); });
-  document.getElementById('sync-btn')?.addEventListener('click', triggerSync);
-  document.getElementById('search-input')?.addEventListener('input', renderRecordsList);
-  document.getElementById('gps-btn')?.addEventListener('click', getGeoLocation);
-  document.getElementById('camera-btn')?.addEventListener('click', () => {
-    if (!State.currentRecord) { showToast('Primero cree o guarde un registro','error'); return; }
-    CameraModule.captureFromCamera((State.currentRecord.fotos||[]).length);
-  });
-  document.getElementById('gallery-btn')?.addEventListener('click', () => {
-    if (!State.currentRecord) { showToast('Primero cree o guarde un registro','error'); return; }
-    CameraModule.selectFromGallery((State.currentRecord.fotos||[]).length);
-  });
-  document.querySelectorAll('.cumple-option').forEach(opt => {
-    opt.addEventListener('click', () => {
-      const input = opt.querySelector('input[type="radio"]');
-      if (input) { input.checked=true; updateCumpleVisual(input.value); }
+    <!-- Estado: sin registro seleccionado -->
+    <div id="no-record-msg" class="no-record-selected">
+      <div class="big-icon">📄</div>
+      <h2>Seleccione o cree una ficha</h2>
+      <p>Use el panel izquierdo para abrir un registro existente o cree uno nuevo con el botón <strong>"Nueva Ficha"</strong>.</p>
+    </div>
+
+    <!-- Wrapper del formulario (oculto hasta seleccionar registro) -->
+    <div id="form-wrapper" style="display:none; flex-direction:column; gap:24px; flex:1;">
+
+      <!-- ════════════════════════════════════════════════
+           SECCIÓN 1: IDENTIFICACIÓN DEL PROYECTO
+           ════════════════════════════════════════════════ -->
+      <div class="form-section">
+        <div class="section-header">
+          <span class="section-icon">🗂️</span>
+          <h2>Identificación del Proyecto</h2>
+        </div>
+        <div class="section-body">
+          <div class="field-grid">
+
+            <div class="field-group">
+              <label class="field-label" for="f_codigo_proyecto">
+                Código Proyecto<span class="required">*</span>
+              </label>
+              <input
+                type="text"
+                id="f_codigo_proyecto"
+                class="field-input mono"
+                placeholder="Ej: 09-2023-12-001"
+                autocomplete="off"
+              >
+            </div>
+
+            <div class="field-group">
+              <label class="field-label" for="f_nro_concurso">N° Concurso</label>
+              <input
+                type="text"
+                id="f_nro_concurso"
+                class="field-input mono"
+                placeholder="Ej: 09-2023"
+                autocomplete="off"
+              >
+            </div>
+
+            <div class="field-group">
+              <label class="field-label" for="f_fecha_recepcion">Fecha Recepción Técnica</label>
+              <div class="date-input-wrap">
+                <input
+                  type="text"
+                  id="f_fecha_recepcion"
+                  class="field-input mono date-input"
+                  placeholder="DD/MM/AAAA"
+                  maxlength="10"
+                  inputmode="numeric"
+                  autocomplete="off"
+                  data-field="fecha_recepcion"
+                >
+                <button type="button" class="date-cal-btn" data-target="f_fecha_recepcion" title="Abrir calendario">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/>
+                    <line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>
+                  </svg>
+                </button>
+                <input type="date" id="f_fecha_recepcion_cal" class="date-hidden-cal" tabindex="-1">
+              </div>
+            </div>
+
+            <div class="field-group">
+              <label class="field-label" for="f_fecha_visita">Fecha de Visita<span class="required">*</span></label>
+              <div class="date-input-wrap">
+                <input
+                  type="text"
+                  id="f_fecha_visita"
+                  class="field-input mono date-input"
+                  placeholder="DD/MM/AAAA"
+                  maxlength="10"
+                  inputmode="numeric"
+                  autocomplete="off"
+                  data-field="fecha_visita"
+                >
+                <button type="button" class="date-cal-btn" data-target="f_fecha_visita" title="Abrir calendario">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/>
+                    <line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>
+                  </svg>
+                </button>
+                <input type="date" id="f_fecha_visita_cal" class="date-hidden-cal" tabindex="-1">
+              </div>
+            </div>
+
+            <div class="field-group">
+              <label class="field-label" for="f_fecha_pago">Fecha de Pago</label>
+              <div class="date-input-wrap">
+                <input
+                  type="text"
+                  id="f_fecha_pago"
+                  class="field-input mono date-input"
+                  placeholder="DD/MM/AAAA"
+                  maxlength="10"
+                  inputmode="numeric"
+                  autocomplete="off"
+                  data-field="fecha_pago"
+                >
+                <button type="button" class="date-cal-btn" data-target="f_fecha_pago" title="Abrir calendario">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/>
+                    <line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>
+                  </svg>
+                </button>
+                <input type="date" id="f_fecha_pago_cal" class="date-hidden-cal" tabindex="-1">
+              </div>
+            </div>
+
+            <div class="field-group">
+              <label class="field-label" for="f_nro_bono">N° Bono</label>
+              <input
+                type="text"
+                id="f_nro_bono"
+                class="field-input mono"
+                placeholder="Ej: 41250"
+                autocomplete="off"
+              >
+            </div>
+
+          </div>
+        </div>
+      </div>
+
+      <!-- ════════════════════════════════════════════════
+           SECCIÓN 2: DATOS DEL BENEFICIARIO Y PREDIO
+           ════════════════════════════════════════════════ -->
+      <div class="form-section">
+        <div class="section-header">
+          <span class="section-icon">👤</span>
+          <h2>Beneficiario y Predio</h2>
+        </div>
+        <div class="section-body">
+          <div class="field-grid cols-1">
+
+            <div class="field-group">
+              <label class="field-label" for="f_beneficiario">
+                Beneficiario (Razón Social)<span class="required">*</span>
+              </label>
+              <input
+                type="text"
+                id="f_beneficiario"
+                class="field-input"
+                placeholder="Ej: Agrícola Los Aromos Ltda."
+                autocomplete="off"
+              >
+            </div>
+
+            <div class="field-group">
+              <label class="field-label" for="f_predio">Predio</label>
+              <input
+                type="text"
+                id="f_predio"
+                class="field-input"
+                placeholder="Ej: Parcela N°3 del Fundo El Sauce"
+                autocomplete="off"
+              >
+            </div>
+
+            <div class="field-group">
+              <label class="field-label" for="f_roles_avaluo">Rol(es) de Avalúo</label>
+              <input
+                type="text"
+                id="f_roles_avaluo"
+                class="field-input mono"
+                placeholder="Ej: 00045-00017"
+                autocomplete="off"
+              >
+            </div>
+
+          </div>
+
+          <!-- División geográfica -->
+          <div class="divider" style="margin:16px 0;"></div>
+          <div class="field-grid cols-3">
+
+            <div class="field-group">
+              <label class="field-label" for="f_region">Región</label>
+              <input
+                type="text"
+                id="f_region"
+                class="field-input"
+                value="Ñuble"
+                readonly
+                style="background:var(--gray-100);color:var(--gray-600);cursor:default;"
+              >
+            </div>
+
+            <div class="field-group">
+              <label class="field-label" for="f_provincia">Provincia</label>
+              <select id="f_provincia" class="field-select" onchange="updateComunas(this.value)">
+                <option value="">— Seleccione provincia —</option>
+                <option value="Diguillín">Diguillín</option>
+                <option value="Punilla">Punilla</option>
+                <option value="Itata">Itata</option>
+              </select>
+            </div>
+
+            <div class="field-group">
+              <label class="field-label" for="f_comuna">Comuna</label>
+              <select id="f_comuna" class="field-select">
+                <option value="">— Seleccione provincia primero —</option>
+              </select>
+            </div>
+
+          </div>
+        </div>
+      </div>
+
+      <!-- ════════════════════════════════════════════════
+           SECCIÓN 3: COORDENADAS UTM
+           ════════════════════════════════════════════════ -->
+      <div class="form-section">
+        <div class="section-header">
+          <span class="section-icon">📍</span>
+          <h2>Coordenadas UTM</h2>
+        </div>
+        <div class="section-body">
+          <div class="utm-grid">
+
+            <div class="field-group">
+              <label class="field-label" for="f_utm_este">Este (X)</label>
+              <input
+                type="number"
+                id="f_utm_este"
+                class="field-input mono"
+                placeholder="Ej: 284300"
+                step="0.01"
+              >
+            </div>
+
+            <div class="field-group">
+              <label class="field-label" for="f_utm_norte">Norte (Y)</label>
+              <input
+                type="number"
+                id="f_utm_norte"
+                class="field-input mono"
+                placeholder="Ej: 5944100"
+                step="0.01"
+              >
+            </div>
+
+            <div class="field-group">
+              <label class="field-label" for="f_utm_datum">Datum</label>
+              <select id="f_utm_datum" class="field-select">
+                <option value="WGS 84">WGS 84</option>
+                <option value="PSAD56">PSAD56</option>
+              </select>
+            </div>
+
+            <div class="field-group">
+              <label class="field-label" for="f_utm_huso">Huso</label>
+              <select id="f_utm_huso" class="field-select">
+                <option value="19">19</option>
+                <option value="18">18</option>
+              </select>
+            </div>
+
+          </div>
+
+          <div style="margin-top:14px; display:flex; gap:10px; align-items:flex-start; flex-wrap:wrap;">
+            <button id="gps-btn" class="utm-btn">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="3"/>
+                <path d="M12 2v3m0 14v3M2 12h3m14 0h3"/>
+                <path d="M12 5a7 7 0 100 14A7 7 0 0012 5z"/>
+              </svg>
+              Obtener GPS
+            </button>
+            <button id="maps-btn" class="utm-btn" style="background:var(--cnr-green-bg);border-color:var(--cnr-green);color:var(--cnr-green);">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/>
+                <circle cx="12" cy="10" r="3"/>
+              </svg>
+              Pegar desde Maps
+            </button>
+            <span style="font-size:.75rem;color:var(--gray-500);align-self:center;max-width:260px;">
+              GPS: captura automática · Maps: pegue coordenadas decimales del pin
+            </span>
+          </div>
+
+          <!-- Campo USO eliminado: era duplicado de HUSO -->
+        </div>
+      </div>
+
+      <!-- ════════════════════════════════════════════════
+           SECCIÓN 4: CULTIVOS
+           ════════════════════════════════════════════════ -->
+      <div class="form-section">
+        <div class="section-header">
+          <span class="section-icon">🌱</span>
+          <h2>Cultivos</h2>
+        </div>
+        <div class="section-body">
+          <div class="field-grid">
+            <div class="field-group">
+              <label class="field-label" for="f_cultivo_inicial">Cultivo Inicial</label>
+              <input
+                type="text"
+                id="f_cultivo_inicial"
+                class="field-input"
+                placeholder="Ej: Arándano"
+                autocomplete="off"
+              >
+            </div>
+            <div class="field-group">
+              <label class="field-label" for="f_cultivo_actual">Cultivo Actual</label>
+              <input
+                type="text"
+                id="f_cultivo_actual"
+                class="field-input"
+                placeholder="Ej: Arándano"
+                autocomplete="off"
+              >
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ════════════════════════════════════════════════
+           SECCIÓN 5: ANTECEDENTES
+           ════════════════════════════════════════════════ -->
+      <div class="form-section">
+        <div class="section-header">
+          <span class="section-icon">📝</span>
+          <h2>Antecedentes</h2>
+        </div>
+        <div class="section-body">
+          <div class="dynamic-list" id="antecedentes-list">
+            <!-- Ítems generados por JS -->
+          </div>
+          <div style="margin-top:12px;">
+            <button id="add-antecedente" class="add-item-btn">
+              + Agregar antecedente
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ════════════════════════════════════════════════
+           SECCIÓN 6: OBSERVACIONES TÉCNICAS
+           ════════════════════════════════════════════════ -->
+      <div class="form-section">
+        <div class="section-header">
+          <span class="section-icon">🔧</span>
+          <h2>Observaciones Técnicas</h2>
+        </div>
+        <div class="section-body">
+          <div class="field-group">
+            <label class="field-label" for="f_observaciones_tecnicas">
+              Descripción de la inspección técnica
+            </label>
+            <textarea
+              id="f_observaciones_tecnicas"
+              class="field-textarea"
+              rows="5"
+              placeholder="Describa el resultado de la inspección de inventario y equipos de riego…"
+            ></textarea>
+          </div>
+        </div>
+      </div>
+
+      <!-- ════════════════════════════════════════════════
+           SECCIÓN 7: TIEMPO DE FUNCIONAMIENTO + OBSERVACIONES GENERALES
+           ════════════════════════════════════════════════ -->
+      <div class="form-section">
+        <div class="section-header">
+          <span class="section-icon">⏱️</span>
+          <h2>Estado General</h2>
+        </div>
+        <div class="section-body">
+
+          <div class="field-group" style="margin-bottom:24px;">
+            <label class="field-label">Tiempo de Funcionamiento de Obra</label>
+            <div class="tiempo-row">
+              <input
+                type="number"
+                id="f_tiempo_funcionamiento"
+                class="field-input tiempo-input"
+                min="0"
+                max="99"
+                step="1"
+                placeholder="0"
+              >
+              <span class="tiempo-unit">años</span>
+            </div>
+          </div>
+
+          <div class="field-group">
+            <label class="field-label">Observaciones Generales</label>
+            <div class="dynamic-list" id="obs-generales-list">
+              <!-- Ítems generados por JS -->
+            </div>
+            <div style="margin-top:12px;">
+              <button id="add-obs-general" class="add-item-btn">
+                + Agregar observación
+              </button>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- ════════════════════════════════════════════════
+           SECCIÓN 8: CUMPLE CON EL OBJETIVO
+           ════════════════════════════════════════════════ -->
+      <div class="form-section">
+        <div class="section-header">
+          <span class="section-icon">✅</span>
+          <h2>Cumple con el Objetivo</h2>
+        </div>
+        <div class="section-body">
+          <div class="cumple-group">
+            <label class="cumple-option si-opt">
+              <input type="radio" name="cumple_objetivo" value="SI">
+              <div class="opt-icon">✅</div>
+              <div class="opt-label">SÍ</div>
+            </label>
+            <label class="cumple-option no-opt">
+              <input type="radio" name="cumple_objetivo" value="NO">
+              <div class="opt-icon">❌</div>
+              <div class="opt-label">NO</div>
+            </label>
+          </div>
+        </div>
+      </div>
+
+      <!-- ════════════════════════════════════════════════
+           SECCIÓN 9: FOTOS
+           ════════════════════════════════════════════════ -->
+      <div class="form-section">
+        <div class="section-header">
+          <span class="section-icon">📷</span>
+          <h2>Registro Fotográfico</h2>
+        </div>
+        <div class="section-body photos-section">
+
+          <div class="photo-actions">
+            <button id="camera-btn" class="photo-btn camera">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"/>
+                <circle cx="12" cy="13" r="4"/>
+              </svg>
+              Tomar Foto
+            </button>
+            <button id="gallery-btn" class="photo-btn gallery">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+                <circle cx="8.5" cy="8.5" r="1.5"/>
+                <polyline points="21 15 16 10 5 21"/>
+              </svg>
+              Agregar desde Galería
+            </button>
+          </div>
+
+          <div class="photo-limit" id="photo-counter">0 / 5 fotos</div>
+
+          <div class="photos-grid" id="photos-grid">
+            <!-- Thumbnails generados por JS -->
+          </div>
+
+          <div style="font-size:.78rem;color:var(--gray-500);margin-top:8px;line-height:1.6;">
+            💡 Las fotos se comprimen automáticamente (~300 KB c/u) y se sincronizan a Google Drive
+            en carpetas organizadas por código de proyecto.
+          </div>
+        </div>
+      </div>
+
+      <!-- Espaciado inferior -->
+      <div style="height:20px;"></div>
+
+    </div><!-- /form-wrapper -->
+  </div><!-- /form-area -->
+</div><!-- /main-layout -->
+
+<!-- ── Barra de acciones (guardar / exportar) ─────────── -->
+<div class="action-bar" id="action-bar" style="display:none;">
+  <span class="record-id-display" id="record-id-display"></span>
+
+  <button id="export-json-btn" class="action-btn secondary" title="Exportar como JSON">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/>
+      <polyline points="14 2 14 8 20 8"/>
+    </svg>
+    JSON
+  </button>
+
+  <button id="export-csv-btn" class="action-btn secondary" title="Exportar registro actual como CSV">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/>
+      <polyline points="14 2 14 8 20 8"/>
+      <line x1="8" y1="13" x2="16" y2="13"/>
+      <line x1="8" y1="17" x2="16" y2="17"/>
+    </svg>
+    CSV Este
+  </button>
+
+  <button id="export-all-csv-btn" class="action-btn secondary" title="Exportar TODOS los registros en un CSV consolidado">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/>
+      <polyline points="14 2 14 8 20 8"/>
+      <line x1="8" y1="11" x2="16" y2="11"/>
+      <line x1="8" y1="15" x2="16" y2="15"/>
+      <line x1="8" y1="19" x2="16" y2="19"/>
+    </svg>
+    CSV Todos
+  </button>
+
+  <button id="save-btn" class="action-btn primary">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"/>
+      <polyline points="17 21 17 13 7 13 7 21"/>
+      <polyline points="7 3 7 8 15 8"/>
+    </svg>
+    Guardar Ficha
+  </button>
+</div>
+
+<!-- ── Toast container ────────────────────────────────── -->
+<div id="toast-container" class="toast-container"></div>
+
+<!-- ── Scripts ────────────────────────────────────────── -->
+<script src="js/camera.js"></script>
+<script src="js/app.js"></script>
+
+<script>
+  // Mostrar action bar cuando haya registro activo
+  const _origLoad = loadRecordToForm;
+  document.addEventListener('DOMContentLoaded', () => {
+    const actionBar = document.getElementById('action-bar');
+
+    // Parchamos loadRecordToForm para mostrar la barra
+    const origFn = window.loadRecordToForm;
+    if (origFn) {
+      // La función ya está definida en app.js, vinculamos el observer vía MutationObserver
+    }
+
+    // Observar cuándo aparece el form-wrapper
+    const observer = new MutationObserver(() => {
+      const wrapper = document.getElementById('form-wrapper');
+      if (wrapper && wrapper.style.display !== 'none') {
+        actionBar.style.display = 'flex';
+      } else {
+        actionBar.style.display = 'none';
+      }
     });
+
+    const wrapper = document.getElementById('form-wrapper');
+    if (wrapper) {
+      observer.observe(wrapper, { attributes: true, attributeFilter: ['style'] });
+    }
+
+    // Hamburguesa: abrir/cerrar sidebar en móvil
+    const hamburgerBtn  = document.getElementById('hamburger-btn');
+    const sidebarEl     = document.getElementById('records-sidebar');
+    const overlayEl     = document.getElementById('sidebar-overlay');
+
+    function openSidebar() {
+      sidebarEl.classList.add('mobile-visible');
+      overlayEl.classList.add('visible');
+      document.body.style.overflow = 'hidden';
+    }
+    function closeSidebar() {
+      sidebarEl.classList.remove('mobile-visible');
+      overlayEl.classList.remove('visible');
+      document.body.style.overflow = '';
+    }
+
+    hamburgerBtn?.addEventListener('click', () => {
+      sidebarEl.classList.contains('mobile-visible') ? closeSidebar() : openSidebar();
+    });
+    overlayEl?.addEventListener('click', closeSidebar);
+
+    // Cerrar sidebar al seleccionar un registro en móvil
+    document.getElementById('records-list')?.addEventListener('click', () => {
+      if (window.innerWidth <= 900) closeSidebar();
+    });
+
+    // Cerrar sidebar al crear nueva ficha en móvil
+    document.getElementById('new-record-btn')?.addEventListener('click', () => {
+      if (window.innerWidth <= 900) setTimeout(closeSidebar, 150);
+    }, true);
+
+  // ── Comunas de Ñuble por provincia ──────────────────────
+  const COMUNAS_NUBLE = {
+    'Diguillín': ['Chillán','Bulnes','Chillán Viejo','El Carmen','Pemuco','Pinto','Quillón','San Ignacio','Yungay'],
+    'Punilla':   ['San Carlos','Coihueco','Ñiquén','San Fabián','San Nicolás'],
+    'Itata':     ['Quirihue','Cobquecura','Coelemu','Ninhue','Portezuelo','Ránquil','Trehuaco'],
+  };
+
+  window.updateComunas = function(provincia) {
+    const sel = document.getElementById('f_comuna');
+    sel.innerHTML = '<option value="">— Seleccione comuna —</option>';
+    const lista = COMUNAS_NUBLE[provincia] || [];
+    lista.forEach(c => {
+      const opt = document.createElement('option');
+      opt.value = c; opt.textContent = c;
+      sel.appendChild(opt);
+    });
+  };
+
+  // ── Campos de fecha con formato DD/MM/AAAA ────────────────
+  function initDateInputs() {
+    document.querySelectorAll('.date-input').forEach(input => {
+      // Formato automático al escribir
+      input.addEventListener('input', (e) => {
+        let v = e.target.value.replace(/\D/g, '');
+        if (v.length > 2)  v = v.slice(0,2) + '/' + v.slice(2);
+        if (v.length > 5)  v = v.slice(0,5) + '/' + v.slice(5);
+        if (v.length > 10) v = v.slice(0,10);
+        e.target.value = v;
+      });
+    });
+
+    // Botones de calendario
+    document.querySelectorAll('.date-cal-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const targetId = btn.dataset.target;
+        const calId    = targetId + '_cal';
+        const calInput = document.getElementById(calId);
+        if (calInput) {
+          calInput.showPicker ? calInput.showPicker() : calInput.click();
+        }
+      });
+    });
+
+    // Cuando el calendario oculto cambia, llenar el campo de texto
+    document.querySelectorAll('.date-hidden-cal').forEach(cal => {
+      cal.addEventListener('change', () => {
+        const visibleId = cal.id.replace('_cal', '');
+        const visible   = document.getElementById(visibleId);
+        if (visible && cal.value) {
+          const [y,m,d] = cal.value.split('-');
+          visible.value = `${d}/${m}/${y}`;
+        }
+      });
+    });
+  }
+  initDateInputs();
+
+  // ── Wake Lock: evitar que la pantalla se apague ───────────
+  let wakeLock = null;
+  async function requestWakeLock() {
+    if ('wakeLock' in navigator) {
+      try {
+        wakeLock = await navigator.wakeLock.request('screen');
+        console.log('[WakeLock] Pantalla activa');
+        wakeLock.addEventListener('release', () => {
+          console.log('[WakeLock] Liberado');
+        });
+      } catch (err) {
+        console.warn('[WakeLock] No disponible:', err.message);
+      }
+    }
+  }
+  requestWakeLock();
+
+  // Reactivar wake lock cuando la página vuelve a ser visible
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') requestWakeLock();
   });
-  document.getElementById('add-antecedente')?.addEventListener('click', () =>
-    addDynamicItem(document.getElementById('antecedentes-list')));
-  document.getElementById('add-obs-general')?.addEventListener('click', () =>
-    addDynamicItem(document.getElementById('obs-generales-list')));
-  document.getElementById('install-btn')?.addEventListener('click', async () => {
-    if (State.installPrompt) {
-      State.installPrompt.prompt();
-      const r = await State.installPrompt.userChoice;
-      if (r.outcome==='accepted') document.getElementById('install-banner')?.classList.remove('visible');
+
+  // ── Pegar coordenadas desde Google Maps ──────────────────
+  document.getElementById('maps-btn')?.addEventListener('click', async () => {
+    let texto = '';
+    try {
+      texto = await navigator.clipboard.readText();
+    } catch {
+      texto = prompt('Pegue las coordenadas de Google Maps (ej: -36.641, -71.943):') || '';
+    }
+    if (!texto) return;
+
+    // Formatos soportados: "-36.641, -71.943" o "-36.641431,-71.943107" o "lat, lon"
+    const match = texto.match(/(-?\d+\.\d+)[,\s]+(-?\d+\.\d+)/);
+    if (!match) {
+      window.dispatchEvent(new CustomEvent('cnr:toast',{detail:{msg:'Formato no reconocido. Copie el pin directamente desde Google Maps.',type:'error'}}));
+      return;
+    }
+    const lat = parseFloat(match[1]);
+    const lon = parseFloat(match[2]);
+
+    // Determinar cuál es lat y cuál lon (Chile: lat entre -17 y -56, lon entre -65 y -76)
+    let latFinal = lat, lonFinal = lon;
+    if (Math.abs(lon) < Math.abs(lat) && lon > -80 && lon < 0) {
+      // Ya están en orden correcto
+    } else if (lat > -80 && lat < 0 && lon < -60) {
+      latFinal = lat; lonFinal = lon;
+    }
+
+    const {easting, northing} = latLonToUTM(latFinal, lonFinal);
+    document.getElementById('f_utm_este').value  = easting.toFixed(0);
+    document.getElementById('f_utm_norte').value = northing.toFixed(0);
+    if (State && State.currentRecord) {
+      State.currentRecord.utm_este  = easting.toFixed(0);
+      State.currentRecord.utm_norte = northing.toFixed(0);
+    }
+    window.dispatchEvent(new CustomEvent('cnr:toast',{detail:{msg:'Coordenadas importadas desde Maps ✓',type:'success'}}));
+  });
+
+  // Registrar Service Worker
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/service-worker.js')
+        .then(reg => console.log('[SW] Registrado:', reg.scope))
+        .catch(err => console.warn('[SW] Error:', err));
     }
   });
-}
+</script>
 
-document.addEventListener('DOMContentLoaded', init);
+</body>
+</html>

@@ -1,61 +1,67 @@
 /**
- * service-worker.js — CNR Seguimiento PWA
- * Estrategia: Cache First para assets, Network First para API
- * Rutas corregidas para GitHub Pages (/cnr-seguimiento/)
+ * service-worker.js — CNR PWA (Seguimiento + Ficha Visita Terreno)
+ * Estrategia: Cache First para assets locales, pass-through para APIs
+ * v2 — Agrega rutas cnr-ficha_visita
  */
 
 'use strict';
 
-const CACHE_NAME   = 'cnr-seguimiento-v2';
-const BASE         = '/cnr-seguimiento';
+const CACHE_NAME   = 'cnr-app-v2';
 const OFFLINE_URLS = [
-  `${BASE}/`,
-  `${BASE}/index.html`,
-  `${BASE}/css/styles.css`,
-  `${BASE}/js/app.js`,
-  `${BASE}/js/camera.js`,
-  `${BASE}/manifest.json`,
-  `${BASE}/icons/icon-192.png`,
-  `${BASE}/icons/icon-512.png`,
+  // ── Ficha Seguimiento (ya existente) ──
+  '/cnr-seguimiento/',
+  '/cnr-seguimiento/index.html',
+  '/cnr-seguimiento/css/styles.css',
+  '/cnr-seguimiento/js/app.js',
+  '/cnr-seguimiento/js/camera.js',
+  '/cnr-seguimiento/manifest.json',
+  '/cnr-seguimiento/icons/icon-192.png',
+  '/cnr-seguimiento/icons/icon-512.png',
+
+  // ── Ficha Visita Terreno (nueva) ──
+  '/cnr-ficha_visita/',
+  '/cnr-ficha_visita/index.html',
+  '/cnr-ficha_visita/styles_demanda.css',
+  '/cnr-ficha_visita/app_demanda.js',
+  '/cnr-ficha_visita/manifest_demanda.json',
 ];
 
-/* ── Instalación: pre-cachear assets ────────────────────── */
+/* ── Instalación ─────────────────────────────────────── */
 self.addEventListener('install', (event) => {
   event.waitUntil(
-    caches.open(CACHE_NAME)
-      .then((cache) => cache.addAll(OFFLINE_URLS)
-        .catch(err => console.warn('[SW] Algunos recursos no se cachearon:', err))
-      )
-      .then(() => self.skipWaiting())
+    caches.open(CACHE_NAME).then((cache) => {
+      return cache.addAll(OFFLINE_URLS).catch(err => {
+        console.warn('[SW] Algunos recursos no cacheados:', err);
+      });
+    }).then(() => self.skipWaiting())
   );
 });
 
-/* ── Activación: limpiar caches viejos ──────────────────── */
+/* ── Activación: limpiar caches anteriores ───────────── */
 self.addEventListener('activate', (event) => {
   event.waitUntil(
-    caches.keys()
-      .then((keys) => Promise.all(
+    caches.keys().then((keys) =>
+      Promise.all(
         keys
           .filter(key => key !== CACHE_NAME)
           .map(key => {
             console.log('[SW] Eliminando cache antiguo:', key);
             return caches.delete(key);
           })
-      ))
-      .then(() => self.clients.claim())
+      )
+    ).then(() => self.clients.claim())
   );
 });
 
-/* ── Fetch: Cache First para assets locales ─────────────── */
+/* ── Fetch: Cache First para assets locales ──────────── */
 self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
 
-  // Ignorar peticiones a APIs externas
+  // Pass-through para APIs externas y métodos no-GET
   if (
-    url.hostname.includes('googleapis.com')      ||
+    url.hostname.includes('googleapis.com') ||
     url.hostname.includes('accounts.google.com') ||
-    url.hostname.includes('gstatic.com')         ||
-    url.hostname.includes('fonts.gstatic.com')   ||
+    url.hostname.includes('gstatic.com') ||
     event.request.method !== 'GET'
   ) {
     return;
@@ -67,48 +73,32 @@ self.addEventListener('fetch', (event) => {
 
       return fetch(event.request)
         .then((response) => {
-          // Cachear solo respuestas válidas de assets del proyecto
           if (
             response &&
             response.status === 200 &&
             response.type !== 'opaque' &&
-            url.pathname.startsWith(BASE) &&
-            (
-              url.pathname.includes('/css/')   ||
-              url.pathname.includes('/js/')    ||
-              url.pathname.includes('/icons/') ||
-              url.pathname.endsWith('.html')   ||
-              url.pathname.endsWith('.json')   ||
-              url.pathname.endsWith('.png')    ||
-              url.pathname.endsWith('.svg')    ||
-              url.pathname === `${BASE}/`
-            )
+            (url.pathname.includes('/cnr-seguimiento/') ||
+             url.pathname.includes('/cnr-ficha_visita/'))
           ) {
-            const responseToCache = response.clone();
-            caches.open(CACHE_NAME).then((cache) => {
-              cache.put(event.request, responseToCache);
-            });
+            const clone = response.clone();
+            caches.open(CACHE_NAME).then(cache => cache.put(event.request, clone));
           }
           return response;
         })
         .catch(() => {
-          // Sin conexión y sin cache: retornar index desde cache
           if (event.request.mode === 'navigate') {
-            return caches.match(`${BASE}/index.html`);
+            // Intentar la raíz de la app correspondiente
+            if (url.pathname.includes('/cnr-ficha_visita/')) {
+              return caches.match('/cnr-ficha_visita/index.html');
+            }
+            return caches.match('/cnr-seguimiento/index.html');
           }
         });
     })
   );
 });
 
-/* ── Background Sync ────────────────────────────────────── */
-self.addEventListener('sync', (event) => {
-  if (event.tag === 'cnr-sync') {
-    event.waitUntil(Promise.resolve());
-  }
-});
-
-/* ── Mensajes desde la app ──────────────────────────────── */
+/* ── Mensajes desde la app ───────────────────────────── */
 self.addEventListener('message', (event) => {
   if (event.data?.type === 'SKIP_WAITING') {
     self.skipWaiting();

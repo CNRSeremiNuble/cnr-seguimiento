@@ -1041,26 +1041,40 @@ body {
 /* ══════════════════════════════════════════════════════════
    BOTÓN HAMBURGUESA — abre sidebar en tablet/móvil
    ══════════════════════════════════════════════════════════ */
-.hamburger-btn {
+.mis-fichas-btn {
   display: none;
   align-items: center;
-  justify-content: center;
-  background: rgba(255,255,255,.15);
-  border: 1px solid rgba(255,255,255,.3);
+  gap: 8px;
+  background: rgba(255,255,255,.18);
+  border: 1.5px solid rgba(255,255,255,.4);
   color: var(--white);
-  width: 44px;
   height: 44px;
-  border-radius: var(--radius-sm);
+  padding: 0 14px;
+  border-radius: var(--radius-md);
   cursor: pointer;
   flex-shrink: 0;
   transition: background .2s;
   margin-right: 8px;
+  font-family: var(--font-main);
+  font-size: .85rem;
+  font-weight: 700;
+  letter-spacing: .02em;
 }
-.hamburger-btn:hover { background: rgba(255,255,255,.28); }
-.hamburger-btn svg   { width: 22px; height: 22px; }
+.mis-fichas-btn:hover { background: rgba(255,255,255,.30); }
+.mis-fichas-btn svg   { width: 18px; height: 18px; flex-shrink: 0; }
+.mis-fichas-btn .count-badge {
+  background: var(--cnr-amber);
+  color: white;
+  border-radius: 10px;
+  padding: 1px 7px;
+  font-size: .72rem;
+  font-weight: 700;
+  min-width: 20px;
+  text-align: center;
+}
 
 @media (max-width: 900px) {
-  .hamburger-btn { display: flex; }
+  .mis-fichas-btn { display: flex; }
 }
 
 /* Overlay oscuro detrás del sidebar abierto en móvil */
@@ -1150,3 +1164,52 @@ body {
   margin-top: 3px;
   font-style: italic;
 }
+
+/* ══════════════════════════════════════════════════════════
+   BORRADO POR DESLIZ / PRESS LARGO EN SIDEBAR
+   ══════════════════════════════════════════════════════════ */
+.record-card {
+  position: relative;
+  overflow: hidden;
+  touch-action: pan-y;
+  user-select: none;
+}
+.record-card-delete-bg {
+  position: absolute;
+  right: 0; top: 0; bottom: 0;
+  width: 80px;
+  background: var(--cnr-red);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  font-size: .75rem;
+  font-weight: 700;
+  flex-direction: column;
+  gap: 3px;
+  transform: translateX(100%);
+  transition: transform .2s;
+  border-radius: 0 var(--radius-md) var(--radius-md) 0;
+  pointer-events: none;
+}
+.record-card-delete-bg svg { width: 18px; height: 18px; }
+.record-card.swiping-left .record-card-delete-bg { transform: translateX(0); pointer-events: auto; }
+.record-card-inner {
+  transition: transform .2s;
+  background: var(--white);
+  border-radius: var(--radius-md);
+  padding: 12px;
+}
+.record-card.swiping-left .record-card-inner { transform: translateX(-80px); }
+.record-card.press-long { 
+  animation: pressLong .15s ease;
+  box-shadow: var(--shadow-md);
+}
+@keyframes pressLong { 0%{transform:scale(1)} 50%{transform:scale(.97)} 100%{transform:scale(1)} }
+
+/* ── Botón Eliminar en action bar ───────────────────────── */
+.action-btn.danger {
+  background: var(--cnr-red);
+  color: var(--white);
+}
+.action-btn.danger:hover { background: #B71C1C; }

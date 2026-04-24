@@ -27,6 +27,14 @@
 
 <!-- ── Header ─────────────────────────────────────────── -->
 <header class="app-header">
+  <!-- Botón hamburguesa visible solo en tablet/móvil -->
+  <button id="hamburger-btn" class="hamburger-btn" title="Ver registros" aria-label="Abrir lista de registros">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+      <line x1="3" y1="6"  x2="21" y2="6"/>
+      <line x1="3" y1="12" x2="21" y2="12"/>
+      <line x1="3" y1="18" x2="21" y2="18"/>
+    </svg>
+  </button>
   <div>
     <div class="logo-text">CNR Seguimiento</div>
     <div class="logo-sub">Ficha Digital · Ley 18.450</div>
@@ -49,6 +57,9 @@
     CNR · Comisión Nacional de Riego · Chile
   </span>
 </div>
+
+<!-- ── Overlay oscuro para sidebar móvil ─────────────── -->
+<div id="sidebar-overlay" class="sidebar-overlay"></div>
 
 <!-- ── Layout principal ───────────────────────────────── -->
 <div class="main-layout">
@@ -594,7 +605,38 @@
       observer.observe(wrapper, { attributes: true, attributeFilter: ['style'] });
     }
 
-    // Registrar Service Worker
+    // Hamburguesa: abrir/cerrar sidebar en móvil
+    const hamburgerBtn  = document.getElementById('hamburger-btn');
+    const sidebarEl     = document.getElementById('records-sidebar');
+    const overlayEl     = document.getElementById('sidebar-overlay');
+
+    function openSidebar() {
+      sidebarEl.classList.add('mobile-visible');
+      overlayEl.classList.add('visible');
+      document.body.style.overflow = 'hidden';
+    }
+    function closeSidebar() {
+      sidebarEl.classList.remove('mobile-visible');
+      overlayEl.classList.remove('visible');
+      document.body.style.overflow = '';
+    }
+
+    hamburgerBtn?.addEventListener('click', () => {
+      sidebarEl.classList.contains('mobile-visible') ? closeSidebar() : openSidebar();
+    });
+    overlayEl?.addEventListener('click', closeSidebar);
+
+    // Cerrar sidebar al seleccionar un registro en móvil
+    document.getElementById('records-list')?.addEventListener('click', () => {
+      if (window.innerWidth <= 900) closeSidebar();
+    });
+
+    // Cerrar sidebar al crear nueva ficha en móvil
+    document.getElementById('new-record-btn')?.addEventListener('click', () => {
+      if (window.innerWidth <= 900) setTimeout(closeSidebar, 150);
+    }, true);
+
+  // Registrar Service Worker
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('/service-worker.js')
         .then(reg => console.log('[SW] Registrado:', reg.scope))

@@ -1,22 +1,22 @@
 /**
  * service-worker.js — CNR PWA (Seguimiento + Ficha Visita Terreno)
  * Estrategia: Cache First para assets locales, pass-through para APIs
- * v2 — Rutas actualizadas a /CNR/
+ * v3 — Rutas actualizadas a nueva estructura de carpetas
  */
 
 'use strict';
 
-const CACHE_NAME   = 'cnr-app-v2';
+const CACHE_NAME   = 'cnr-app-v3';
 const OFFLINE_URLS = [
   // ── Ficha Seguimiento ──
-  '/CNR/',
-  '/CNR/index.html',
-  '/CNR/css/styles.css',
-  '/CNR/js/app.js',
-  '/CNR/js/camera.js',
-  '/CNR/manifest.json',
-  '/CNR/icons/icon-192.png',
-  '/CNR/icons/icon-512.png',
+  '/CNR/cnr-ficha_seguimiento/',
+  '/CNR/cnr-ficha_seguimiento/index.html',
+  '/CNR/cnr-ficha_seguimiento/css/styles.css',
+  '/CNR/cnr-ficha_seguimiento/js/app.js',
+  '/CNR/cnr-ficha_seguimiento/js/camera.js',
+  '/CNR/cnr-ficha_seguimiento/manifest.json',
+  '/CNR/cnr-ficha_seguimiento/icons/icon-192.png',
+  '/CNR/cnr-ficha_seguimiento/icons/icon-512.png',
 
   // ── Ficha Visita Terreno ──
   '/CNR/cnr-ficha_visita/',
@@ -31,73 +31,4 @@ self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
       return cache.addAll(OFFLINE_URLS).catch(err => {
-        console.warn('[SW] Algunos recursos no cacheados:', err);
-      });
-    }).then(() => self.skipWaiting())
-  );
-});
-
-/* ── Activación: limpiar caches anteriores ───────────── */
-self.addEventListener('activate', (event) => {
-  event.waitUntil(
-    caches.keys().then((keys) =>
-      Promise.all(
-        keys
-          .filter(key => key !== CACHE_NAME)
-          .map(key => {
-            console.log('[SW] Eliminando cache antiguo:', key);
-            return caches.delete(key);
-          })
-      )
-    ).then(() => self.clients.claim())
-  );
-});
-
-/* ── Fetch: Cache First para assets locales ──────────── */
-self.addEventListener('fetch', (event) => {
-  const url = new URL(event.request.url);
-
-  if (
-    url.hostname.includes('googleapis.com') ||
-    url.hostname.includes('accounts.google.com') ||
-    url.hostname.includes('gstatic.com') ||
-    event.request.method !== 'GET'
-  ) {
-    return;
-  }
-
-  event.respondWith(
-    caches.match(event.request).then((cached) => {
-      if (cached) return cached;
-
-      return fetch(event.request)
-        .then((response) => {
-          if (
-            response &&
-            response.status === 200 &&
-            response.type !== 'opaque' &&
-            url.pathname.startsWith('/CNR/')
-          ) {
-            const clone = response.clone();
-            caches.open(CACHE_NAME).then(cache => cache.put(event.request, clone));
-          }
-          return response;
-        })
-        .catch(() => {
-          if (event.request.mode === 'navigate') {
-            if (url.pathname.includes('/cnr-ficha_visita/')) {
-              return caches.match('/CNR/cnr-ficha_visita/index.html');
-            }
-            return caches.match('/CNR/index.html');
-          }
-        });
-    })
-  );
-});
-
-/* ── Mensajes desde la app ───────────────────────────── */
-self.addEventListener('message', (event) => {
-  if (event.data?.type === 'SKIP_WAITING') {
-    self.skipWaiting();
-  }
-});
+        con

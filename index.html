@@ -27,13 +27,15 @@
 
 <!-- ── Header ─────────────────────────────────────────── -->
 <header class="app-header">
-  <!-- Botón hamburguesa visible solo en tablet/móvil -->
-  <button id="hamburger-btn" class="hamburger-btn" title="Ver registros" aria-label="Abrir lista de registros">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-      <line x1="3" y1="6"  x2="21" y2="6"/>
-      <line x1="3" y1="12" x2="21" y2="12"/>
-      <line x1="3" y1="18" x2="21" y2="18"/>
+  <!-- Botón "Mis Fichas" visible solo en tablet/móvil -->
+  <button id="hamburger-btn" class="mis-fichas-btn" title="Ver mis fichas" aria-label="Abrir lista de registros">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/>
+      <polyline points="14 2 14 8 20 8"/>
+      <line x1="8" y1="13" x2="16" y2="13"/>
+      <line x1="8" y1="17" x2="16" y2="17"/>
     </svg>
+    <span id="mis-fichas-label">Mis Fichas</span>
   </button>
   <div>
     <div class="logo-text">CNR Seguimiento</div>
@@ -603,6 +605,16 @@
     CSV Todos
   </button>
 
+  <button id="delete-btn" class="action-btn danger" title="Eliminar esta ficha">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <polyline points="3 6 5 6 21 6"/>
+      <path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/>
+      <path d="M10 11v6M14 11v6"/>
+      <path d="M9 6V4a1 1 0 011-1h4a1 1 0 011 1v2"/>
+    </svg>
+    Eliminar
+  </button>
+
   <button id="save-btn" class="action-btn primary">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
       <path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"/>
@@ -611,6 +623,58 @@
     </svg>
     Guardar Ficha
   </button>
+</div>
+
+<!-- ── Modal post-guardado ───────────────────────────── -->
+<div id="modal-post-save" class="modal-overlay">
+  <div class="modal">
+    <div class="modal-header">✓ Ficha guardada correctamente</div>
+    <div class="modal-body">
+      <p style="color:var(--gray-700);margin-bottom:16px;line-height:1.6;">
+        ¿Qué deseas hacer ahora?
+      </p>
+      <div style="display:flex;flex-direction:column;gap:12px;">
+        <button id="modal-nueva-ficha" class="action-btn primary" style="justify-content:center;font-size:1rem;">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+            <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+          </svg>
+          Nueva Ficha
+        </button>
+        <button id="modal-ver-registros" class="action-btn secondary" style="justify-content:center;font-size:1rem;">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/>
+            <polyline points="14 2 14 8 20 8"/>
+          </svg>
+          Ver Mis Fichas
+        </button>
+        <button id="modal-continuar" class="action-btn secondary" style="justify-content:center;font-size:.95rem;color:var(--gray-500);">
+          Continuar editando esta ficha
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Modal confirmación borrado ────────────────────── -->
+<div id="modal-confirm-delete" class="modal-overlay">
+  <div class="modal">
+    <div class="modal-header" style="background:var(--cnr-red);">⚠ Eliminar Ficha</div>
+    <div class="modal-body">
+      <p style="color:var(--gray-700);margin-bottom:8px;line-height:1.6;">
+        ¿Estás seguro que deseas eliminar esta ficha?
+      </p>
+      <p id="modal-delete-name" style="font-weight:700;color:var(--gray-900);margin-bottom:8px;"></p>
+      <p style="font-size:.85rem;color:var(--gray-500);line-height:1.5;">
+        El registro se eliminará de la tablet. Si estaba sincronizado con Drive,
+        el archivo quedará marcado como <strong>ELIMINADO</strong> en la carpeta del proyecto.
+        Esta acción no se puede deshacer.
+      </p>
+    </div>
+    <div class="modal-footer">
+      <button id="modal-delete-cancel" class="action-btn secondary">Cancelar</button>
+      <button id="modal-delete-confirm" class="action-btn danger">Eliminar</button>
+    </div>
+  </div>
 </div>
 
 <!-- ── Toast container ────────────────────────────────── -->

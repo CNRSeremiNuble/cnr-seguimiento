@@ -1,7 +1,7 @@
 {
-  "name": "CNR Seguimiento — Ficha Digital Ley 18.450",
-  "short_name": "CNR Seguimiento",
-  "description": "Ficha digital de seguimiento de proyectos de riego CNR - Comisión Nacional de Riego Chile",
+  "name": "Ficha de segumiento - Proyectos Ley 18.450",
+  "short_name": "Ficha de Seguimiento",
+  "description": "Ficha digital de seguimiento de proyectos CNR - Comisión Nacional de Riego",
   "start_url": "/cnr-seguimiento/index.html",
   "scope": "/cnr-seguimiento/",
   "display": "standalone",

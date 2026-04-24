@@ -1,29 +1,29 @@
 /**
  * service-worker.js — CNR PWA (Seguimiento + Ficha Visita Terreno)
  * Estrategia: Cache First para assets locales, pass-through para APIs
- * v2 — Agrega rutas cnr-ficha_visita
+ * v2 — Rutas actualizadas a /CNR/
  */
 
 'use strict';
 
 const CACHE_NAME   = 'cnr-app-v2';
 const OFFLINE_URLS = [
-  // ── Ficha Seguimiento (ya existente) ──
-  '/cnr-seguimiento/',
-  '/cnr-seguimiento/index.html',
-  '/cnr-seguimiento/css/styles.css',
-  '/cnr-seguimiento/js/app.js',
-  '/cnr-seguimiento/js/camera.js',
-  '/cnr-seguimiento/manifest.json',
-  '/cnr-seguimiento/icons/icon-192.png',
-  '/cnr-seguimiento/icons/icon-512.png',
+  // ── Ficha Seguimiento ──
+  '/CNR/',
+  '/CNR/index.html',
+  '/CNR/css/styles.css',
+  '/CNR/js/app.js',
+  '/CNR/js/camera.js',
+  '/CNR/manifest.json',
+  '/CNR/icons/icon-192.png',
+  '/CNR/icons/icon-512.png',
 
-  // ── Ficha Visita Terreno (nueva) ──
-  '/cnr-ficha_visita/',
-  '/cnr-ficha_visita/index.html',
-  '/cnr-ficha_visita/styles_demanda.css',
-  '/cnr-ficha_visita/app_demanda.js',
-  '/cnr-ficha_visita/manifest_demanda.json',
+  // ── Ficha Visita Terreno ──
+  '/CNR/cnr-ficha_visita/',
+  '/CNR/cnr-ficha_visita/index.html',
+  '/CNR/cnr-ficha_visita/styles_demanda.css',
+  '/CNR/cnr-ficha_visita/app_demanda.js',
+  '/CNR/cnr-ficha_visita/manifest_demanda.json',
 ];
 
 /* ── Instalación ─────────────────────────────────────── */
@@ -57,7 +57,6 @@ self.addEventListener('activate', (event) => {
 self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
 
-  // Pass-through para APIs externas y métodos no-GET
   if (
     url.hostname.includes('googleapis.com') ||
     url.hostname.includes('accounts.google.com') ||
@@ -77,8 +76,7 @@ self.addEventListener('fetch', (event) => {
             response &&
             response.status === 200 &&
             response.type !== 'opaque' &&
-            (url.pathname.includes('/cnr-seguimiento/') ||
-             url.pathname.includes('/cnr-ficha_visita/'))
+            url.pathname.startsWith('/CNR/')
           ) {
             const clone = response.clone();
             caches.open(CACHE_NAME).then(cache => cache.put(event.request, clone));
@@ -87,11 +85,10 @@ self.addEventListener('fetch', (event) => {
         })
         .catch(() => {
           if (event.request.mode === 'navigate') {
-            // Intentar la raíz de la app correspondiente
             if (url.pathname.includes('/cnr-ficha_visita/')) {
-              return caches.match('/cnr-ficha_visita/index.html');
+              return caches.match('/CNR/cnr-ficha_visita/index.html');
             }
-            return caches.match('/cnr-seguimiento/index.html');
+            return caches.match('/CNR/index.html');
           }
         });
     })

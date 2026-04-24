@@ -1,44 +1,48 @@
 /**
  * service-worker.js — CNR Seguimiento PWA
  * Estrategia: Cache First para assets, Network First para API
+ * Rutas corregidas para GitHub Pages (/cnr-seguimiento/)
  */
 
 'use strict';
 
-const CACHE_NAME    = 'cnr-seguimiento-v1';
-const OFFLINE_URLS  = [
-  '/cnr-seguimiento',
-  '/index.html',
-  '/css/styles.css',
-  '/js/app.js',
-  '/js/camera.js',
-  '/manifest.json',
-  'https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap',
+const CACHE_NAME   = 'cnr-seguimiento-v2';
+const BASE         = '/cnr-seguimiento';
+const OFFLINE_URLS = [
+  `${BASE}/`,
+  `${BASE}/index.html`,
+  `${BASE}/css/styles.css`,
+  `${BASE}/js/app.js`,
+  `${BASE}/js/camera.js`,
+  `${BASE}/manifest.json`,
+  `${BASE}/icons/icon-192.png`,
+  `${BASE}/icons/icon-512.png`,
 ];
 
 /* ── Instalación: pre-cachear assets ────────────────────── */
 self.addEventListener('install', (event) => {
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => {
-      // Cachear archivos locales (ignorar errores en Google Fonts offline)
-      const localUrls = OFFLINE_URLS.filter(url => !url.startsWith('http'));
-      return cache.addAll(localUrls).catch(err => {
-        console.warn('[SW] Algunos recursos no se cachearon:', err);
-      });
-    }).then(() => self.skipWaiting())
+    caches.open(CACHE_NAME)
+      .then((cache) => cache.addAll(OFFLINE_URLS)
+        .catch(err => console.warn('[SW] Algunos recursos no se cachearon:', err))
+      )
+      .then(() => self.skipWaiting())
   );
 });
 
 /* ── Activación: limpiar caches viejos ──────────────────── */
 self.addEventListener('activate', (event) => {
   event.waitUntil(
-    caches.keys().then((keys) =>
-      Promise.all(
+    caches.keys()
+      .then((keys) => Promise.all(
         keys
           .filter(key => key !== CACHE_NAME)
-          .map(key => caches.delete(key))
-      )
-    ).then(() => self.clients.claim())
+          .map(key => {
+            console.log('[SW] Eliminando cache antiguo:', key);
+            return caches.delete(key);
+          })
+      ))
+      .then(() => self.clients.claim())
   );
 });
 
@@ -46,14 +50,15 @@ self.addEventListener('activate', (event) => {
 self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
 
-  // Ignorar peticiones a APIs externas (Google Drive, OAuth)
+  // Ignorar peticiones a APIs externas
   if (
-    url.hostname.includes('googleapis.com') ||
+    url.hostname.includes('googleapis.com')      ||
     url.hostname.includes('accounts.google.com') ||
-    url.hostname.includes('gstatic.com') ||
+    url.hostname.includes('gstatic.com')         ||
+    url.hostname.includes('fonts.gstatic.com')   ||
     event.request.method !== 'GET'
   ) {
-    return; // deja que el navegador maneje normalmente
+    return;
   }
 
   event.respondWith(
@@ -62,18 +67,22 @@ self.addEventListener('fetch', (event) => {
 
       return fetch(event.request)
         .then((response) => {
-          // Cachear solo respuestas válidas de assets locales
+          // Cachear solo respuestas válidas de assets del proyecto
           if (
             response &&
             response.status === 200 &&
             response.type !== 'opaque' &&
-            (url.pathname.includes('/css/') ||
-             url.pathname.includes('/js/') ||
-             url.pathname === '/' ||
-             url.pathname.endsWith('.html') ||
-             url.pathname.endsWith('.json') ||
-             url.pathname.endsWith('.png') ||
-             url.pathname.endsWith('.svg'))
+            url.pathname.startsWith(BASE) &&
+            (
+              url.pathname.includes('/css/')   ||
+              url.pathname.includes('/js/')    ||
+              url.pathname.includes('/icons/') ||
+              url.pathname.endsWith('.html')   ||
+              url.pathname.endsWith('.json')   ||
+              url.pathname.endsWith('.png')    ||
+              url.pathname.endsWith('.svg')    ||
+              url.pathname === `${BASE}/`
+            )
           ) {
             const responseToCache = response.clone();
             caches.open(CACHE_NAME).then((cache) => {
@@ -83,20 +92,18 @@ self.addEventListener('fetch', (event) => {
           return response;
         })
         .catch(() => {
-          // Sin conexión y sin cache: retornar página offline básica
+          // Sin conexión y sin cache: retornar index desde cache
           if (event.request.mode === 'navigate') {
-            return caches.match('/index.html');
+            return caches.match(`${BASE}/index.html`);
           }
         });
     })
   );
 });
 
-/* ── Background Sync (soporte limitado en Android Chrome) ── */
+/* ── Background Sync ────────────────────────────────────── */
 self.addEventListener('sync', (event) => {
   if (event.tag === 'cnr-sync') {
-    // La sincronización real se maneja en app.js via online event
-    // Este handler existe para compatibilidad futura
     event.waitUntil(Promise.resolve());
   }
 });

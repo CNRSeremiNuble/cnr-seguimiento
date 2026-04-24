@@ -1072,3 +1072,81 @@ body {
   z-index: 199;
 }
 .sidebar-overlay.visible { display: block; }
+
+/* ══════════════════════════════════════════════════════════
+   CAMPO DE FECHA PERSONALIZADO DD/MM/AAAA
+   ══════════════════════════════════════════════════════════ */
+.date-input-wrap {
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  position: relative;
+}
+.date-input-wrap .date-input {
+  flex: 1;
+  border-radius: var(--radius-sm) 0 0 var(--radius-sm);
+  border-right: none;
+  font-family: var(--font-mono);
+  letter-spacing: .08em;
+}
+.date-input-wrap .date-input:focus {
+  border-color: var(--cnr-blue);
+  box-shadow: 0 0 0 3px rgba(0,87,168,.12);
+  z-index: 1;
+}
+.date-cal-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--gray-100);
+  border: 1.5px solid var(--gray-300);
+  border-left: none;
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  color: var(--gray-600);
+  cursor: pointer;
+  padding: 0 12px;
+  min-height: var(--touch-min);
+  transition: background .2s, color .2s;
+  flex-shrink: 0;
+}
+.date-cal-btn:hover {
+  background: var(--cnr-blue-light);
+  color: var(--cnr-blue);
+  border-color: var(--cnr-blue);
+}
+.date-cal-btn svg { width: 18px; height: 18px; }
+
+/* Input de fecha nativo oculto (solo abre el picker) */
+.date-hidden-cal {
+  position: absolute;
+  opacity: 0;
+  width: 1px;
+  height: 1px;
+  pointer-events: none;
+  top: 0; right: 0;
+}
+
+/* ══════════════════════════════════════════════════════════
+   INDICADOR DE MODIFICACIÓN
+   ══════════════════════════════════════════════════════════ */
+.mod-star {
+  color: var(--cnr-amber);
+  font-size: .8rem;
+  margin-left: 4px;
+  font-weight: 700;
+}
+.mod-indicator {
+  background: var(--cnr-amber-bg);
+  color: var(--cnr-amber);
+  font-size: .7rem;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 10px;
+  white-space: nowrap;
+}
+.record-card-moddate {
+  font-size: .68rem;
+  color: var(--cnr-amber);
+  margin-top: 3px;
+  font-style: italic;
+}

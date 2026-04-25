@@ -11,11 +11,19 @@
   <meta name="description" content="Ficha de visita a terreno CNR — Validación de datos para demanda de riego">
   <title>CNR Ficha Visita Terreno</title>
   <link rel="manifest" href="manifest_demanda.json">
-  <link rel="icon" type="image/png" sizes="192x192" href="/CNR/cnr-ficha_seguimiento/icons/icon-192.png">
-  <link rel="apple-touch-icon" href="/CNR/cnr-ficha_seguimiento/icons/icon-192.png">
+  <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-visita-192.png">
+  <link rel="apple-touch-icon" href="icons/icon-visita-192.png">
   <link rel="stylesheet" href="styles_demanda.css">
   <style>
-    /* ── Estilos del módulo Croquis ──────────────────────── */
+    /* ── Firma siempre fondo blanco (modo oscuro) ──────── */
+    #firma-canvas {
+      background: #FFFFFF !important;
+    }
+    .firma-canvas-wrap {
+      background: #FFFFFF !important;
+    }
+
+    /* ── Croquis ───────────────────────────────────────── */
     .croquis-wrap {
       border: 2px dashed var(--gray-300);
       border-radius: var(--radius-md);
@@ -23,70 +31,38 @@
       overflow: hidden;
       position: relative;
     }
-    .croquis-wrap.tiene-imagen {
-      border: 2px solid var(--cnr-blue);
-      background: #000;
-    }
+    .croquis-wrap.tiene-imagen { border: 2px solid var(--cnr-blue); background: #000; }
     #croquis-empty {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      gap: 10px;
-      padding: 40px 20px;
-      color: var(--gray-400);
-      font-size: .875rem;
-      text-align: center;
+      display: flex; flex-direction: column; align-items: center;
+      justify-content: center; gap: 10px; padding: 40px 20px;
+      color: var(--gray-400); font-size: .875rem; text-align: center;
     }
-    #croquis-canvas {
-      display: block;
-      width: 100%;
-      height: auto;
-      touch-action: none;
-      cursor: crosshair;
-    }
+    #croquis-canvas { display: block; width: 100%; height: auto; touch-action: none; cursor: crosshair; }
     #croquis-toolbar {
-      display: none;
-      flex-wrap: wrap;
-      align-items: center;
-      gap: 8px;
-      padding: 10px 12px;
-      background: var(--gray-100);
-      border-top: 1px solid var(--gray-200);
+      display: none; flex-wrap: wrap; align-items: center; gap: 8px;
+      padding: 10px 12px; background: var(--gray-100); border-top: 1px solid var(--gray-200);
     }
     .croquis-group {
-      display: flex;
-      align-items: center;
-      gap: 4px;
-      padding-right: 10px;
-      border-right: 1px solid var(--gray-300);
+      display: flex; align-items: center; gap: 4px;
+      padding-right: 10px; border-right: 1px solid var(--gray-300);
     }
     .croquis-group:last-child { border-right: none; }
     .croquis-group-label {
-      font-size: .7rem;
-      font-weight: 600;
-      color: var(--gray-500);
-      text-transform: uppercase;
-      letter-spacing: .04em;
-      margin-right: 4px;
-      white-space: nowrap;
+      font-size: .7rem; font-weight: 600; color: var(--gray-500);
+      text-transform: uppercase; letter-spacing: .04em; margin-right: 4px; white-space: nowrap;
     }
     .croquis-tool-btn {
       display: flex; align-items: center; justify-content: center;
-      width: 38px; height: 38px;
-      background: var(--white); border: 1.5px solid var(--gray-300);
-      border-radius: var(--radius-sm); cursor: pointer;
-      transition: all .15s; font-size: .85rem;
+      width: 38px; height: 38px; background: var(--white);
+      border: 1.5px solid var(--gray-300); border-radius: var(--radius-sm);
+      cursor: pointer; transition: all .15s;
     }
-    .croquis-tool-btn:hover { border-color: var(--cnr-blue); background: var(--cnr-blue-light); }
+    .croquis-tool-btn:hover  { border-color: var(--cnr-blue); background: var(--cnr-blue-light); }
     .croquis-tool-btn.active { border-color: var(--cnr-blue); background: var(--cnr-blue); color: white; }
     .croquis-tool-btn svg { width: 18px; height: 18px; }
-
     .croquis-color-btn {
-      width: 30px; height: 30px;
-      border-radius: 50%; border: 2.5px solid var(--gray-300);
-      cursor: pointer; transition: transform .15s, border-color .15s;
-      flex-shrink: 0;
+      width: 30px; height: 30px; border-radius: 50%; border: 2.5px solid var(--gray-300);
+      cursor: pointer; transition: transform .15s, border-color .15s; flex-shrink: 0;
     }
     .croquis-color-btn:hover  { transform: scale(1.15); }
     .croquis-color-btn.active { border-color: var(--cnr-blue); transform: scale(1.2); box-shadow: 0 0 0 2px var(--cnr-blue-light); }
@@ -95,68 +71,75 @@
     .color-azul     { background: #1565C0; }
     .color-amarillo { background: #F9A825; }
     .color-blanco   { background: #FFFFFF; border-color: var(--gray-400); }
-
     .croquis-width-btn {
       display: flex; align-items: center; justify-content: center;
-      width: 38px; height: 38px;
-      background: var(--white); border: 1.5px solid var(--gray-300);
-      border-radius: var(--radius-sm); cursor: pointer;
-      transition: all .15s;
+      width: 38px; height: 38px; background: var(--white);
+      border: 1.5px solid var(--gray-300); border-radius: var(--radius-sm); cursor: pointer; transition: all .15s;
     }
     .croquis-width-btn:hover  { border-color: var(--cnr-blue); background: var(--cnr-blue-light); }
     .croquis-width-btn.active { border-color: var(--cnr-blue); background: var(--cnr-blue-light); }
-    .croquis-width-btn span {
-      background: var(--gray-800);
-      border-radius: 50%;
-      display: block;
-    }
-    .w-fino   span { width: 3px;  height: 3px; }
-    .w-medio  span { width: 6px;  height: 6px; }
-    .w-grueso span { width: 10px; height: 10px; }
-
+    .croquis-width-btn span { background: var(--gray-800); border-radius: 50%; display: block; }
     #croquis-actions {
-      display: none;
-      flex-wrap: wrap;
-      gap: 8px;
-      padding: 10px 12px;
-      background: var(--white);
-      border-top: 1px solid var(--gray-200);
+      display: none; flex-wrap: wrap; gap: 8px;
+      padding: 10px 12px; background: var(--white); border-top: 1px solid var(--gray-200);
     }
-    .croquis-import-row {
-      display: flex;
-      gap: 10px;
-      margin-bottom: 12px;
-      flex-wrap: wrap;
-    }
+    .croquis-import-row { display: flex; gap: 10px; margin-bottom: 12px; flex-wrap: wrap; align-items: center; }
     .btn-croquis-import {
       display: flex; align-items: center; gap: 8px;
-      background: var(--cnr-blue); color: var(--white);
-      border: none; border-radius: var(--radius-sm);
-      padding: 10px 18px; font-family: var(--font-main);
-      font-size: .875rem; font-weight: 600; cursor: pointer;
-      min-height: var(--touch-min); transition: background .2s;
+      background: var(--cnr-blue); color: var(--white); border: none;
+      border-radius: var(--radius-sm); padding: 10px 18px;
+      font-family: var(--font-main); font-size: .875rem; font-weight: 600;
+      cursor: pointer; min-height: var(--touch-min); transition: background .2s;
     }
     .btn-croquis-import:hover { background: var(--cnr-blue-dark); }
-
     .btn-croquis-action {
       display: flex; align-items: center; gap: 6px;
       background: var(--white); color: var(--gray-700);
       border: 1.5px solid var(--gray-300); border-radius: var(--radius-sm);
-      padding: 8px 14px; font-family: var(--font-main);
-      font-size: .82rem; font-weight: 500; cursor: pointer;
-      min-height: 38px; transition: background .2s;
+      padding: 8px 14px; font-family: var(--font-main); font-size: .82rem;
+      font-weight: 500; cursor: pointer; min-height: 38px; transition: background .2s;
     }
-    .btn-croquis-action:hover { background: var(--gray-100); }
-    .btn-croquis-action.save  { background: var(--cnr-green-bg); color: var(--cnr-green); border-color: var(--cnr-green); }
-    .btn-croquis-action.save:hover { background: var(--cnr-green); color: white; }
-    .btn-croquis-action.danger { color: var(--cnr-red); border-color: var(--cnr-red); }
-    .btn-croquis-action.danger:hover { background: var(--cnr-red); color: white; }
-
+    .btn-croquis-action:hover          { background: var(--gray-100); }
+    .btn-croquis-action.save           { background: var(--cnr-green-bg); color: var(--cnr-green); border-color: var(--cnr-green); }
+    .btn-croquis-action.save:hover     { background: var(--cnr-green); color: white; }
+    .btn-croquis-action.danger         { color: var(--cnr-red); border-color: var(--cnr-red); }
+    .btn-croquis-action.danger:hover   { background: var(--cnr-red); color: white; }
     .croquis-saved-badge {
       display: inline-flex; align-items: center; gap: 4px;
       background: var(--cnr-green-bg); color: var(--cnr-green);
       border-radius: var(--radius-sm); padding: 4px 10px;
       font-size: .78rem; font-weight: 600;
+    }
+
+    /* ── Foto de referencia más alta ───────────────────── */
+    .foto-preview img {
+      width: 100%; max-height: 420px; object-fit: contain;
+      display: block; background: #000;
+    }
+    .foto-single-wrap { min-height: 260px; }
+
+    /* ── Crop modal ────────────────────────────────────── */
+    .crop-overlay {
+      position: fixed; inset: 0; background: rgba(0,0,0,.85);
+      z-index: 500; display: flex; flex-direction: column;
+      align-items: center; justify-content: center; gap: 16px; padding: 20px;
+    }
+    .crop-overlay.hidden { display: none; }
+    .crop-container {
+      position: relative; overflow: hidden;
+      border: 2px solid var(--cnr-blue); border-radius: var(--radius-md);
+      max-width: 90vw; max-height: 70vh; cursor: crosshair;
+    }
+    .crop-container img { display: block; max-width: 90vw; max-height: 70vh; }
+    .crop-selection {
+      position: absolute; border: 2px solid #FFFFFF;
+      box-shadow: 0 0 0 9999px rgba(0,0,0,.5);
+      pointer-events: none;
+    }
+    .crop-actions { display: flex; gap: 12px; }
+    .crop-tip {
+      color: rgba(255,255,255,.8); font-size: .85rem; text-align: center;
+      font-family: var(--font-main);
     }
   </style>
 </head>
@@ -248,10 +231,6 @@
                 <input type="date" id="f_fecha_visita_cal" class="date-hidden-cal" tabindex="-1">
               </div>
             </div>
-            <div class="field-group">
-              <label class="field-label" for="f_codigo_vinculado">Código Proyecto (si existe)</label>
-              <input type="text" id="f_codigo_vinculado" class="field-input mono" placeholder="Ej: 09-2025-12-001" autocomplete="off">
-            </div>
           </div>
         </div>
       </div>
@@ -278,7 +257,7 @@
             </div>
             <div class="field-group">
               <label class="field-label" for="f_email">Correo Electrónico</label>
-              <input type="email" id="f_email" class="field-input" placeholder="correo@ejemplo.cl" autocomplete="off" inputmode="email">
+              <input type="email" id="f_email" class="field-input" placeholder="correo@ejemplo.cl" autocomplete="off" inputmode="email" spellcheck="false">
             </div>
             <div class="field-group">
               <label class="field-label" for="f_n_grupo_familiar">N° Grupo Familiar</label>
@@ -519,12 +498,49 @@
         <div class="section-header"><span class="section-icon">📋</span><h2>5. Otros Datos</h2></div>
         <div class="section-body">
           <div class="field-grid">
-            <div class="field-group"><label class="field-label">¿Participa en programa INDAP?</label><div class="radio-group"><label class="radio-option"><input type="radio" name="indap_participa" value="Sí"><span class="radio-label">Sí</span></label><label class="radio-option"><input type="radio" name="indap_participa" value="No"><span class="radio-label">No</span></label></div></div>
-            <div class="field-group"><label class="field-label">¿Agricultor acreditado INDAP?</label><div class="radio-group"><label class="radio-option"><input type="radio" name="indap_acreditado" value="Sí"><span class="radio-label">Sí</span></label><label class="radio-option"><input type="radio" name="indap_acreditado" value="No"><span class="radio-label">No</span></label></div></div>
-            <div class="field-group"><label class="field-label">¿Con inicio de actividades?</label><div class="radio-group"><label class="radio-option"><input type="radio" name="inicio_actividades" value="Sí"><span class="radio-label">Sí</span></label><label class="radio-option"><input type="radio" name="inicio_actividades" value="No"><span class="radio-label">No</span></label></div></div>
-            <div class="field-group"><label class="field-label">¿Proyecto incluye IVA?</label><div class="radio-group"><label class="radio-option"><input type="radio" name="incluye_iva" value="Sí"><span class="radio-label">Sí</span></label><label class="radio-option"><input type="radio" name="incluye_iva" value="No"><span class="radio-label">No</span></label></div></div>
-            <div class="field-group"><label class="field-label">¿Con consultor/a?</label><div class="radio-group"><label class="radio-option"><input type="radio" name="con_consultor" value="Sí"><span class="radio-label">Sí</span></label><label class="radio-option"><input type="radio" name="con_consultor" value="No"><span class="radio-label">No</span></label></div></div>
-            <div class="field-group field-group--wide" id="grupo-consultor" style="display:none;"><label class="field-label" for="f_nombre_consultor">Nombre del Consultor/a</label><input type="text" id="f_nombre_consultor" class="field-input" placeholder="Nombre completo del consultor/a" autocomplete="off"></div>
+            <div class="field-group">
+              <label class="field-label">¿Participa en programa INDAP?</label>
+              <div class="radio-group">
+                <label class="radio-option"><input type="radio" name="indap_participa" value="Sí"><span class="radio-label">Sí</span></label>
+                <label class="radio-option"><input type="radio" name="indap_participa" value="No"><span class="radio-label">No</span></label>
+              </div>
+            </div>
+            <div class="field-group">
+              <label class="field-label" for="f_indap_programa">Nombre del programa INDAP</label>
+              <input type="text" id="f_indap_programa" class="field-input" placeholder="Ej: PDI, PRODESAL, SAT…" autocomplete="off">
+            </div>
+            <div class="field-group">
+              <label class="field-label">¿Agricultor acreditado INDAP?</label>
+              <div class="radio-group">
+                <label class="radio-option"><input type="radio" name="indap_acreditado" value="Sí"><span class="radio-label">Sí</span></label>
+                <label class="radio-option"><input type="radio" name="indap_acreditado" value="No"><span class="radio-label">No</span></label>
+              </div>
+            </div>
+            <div class="field-group">
+              <label class="field-label">¿Con inicio de actividades?</label>
+              <div class="radio-group">
+                <label class="radio-option"><input type="radio" name="inicio_actividades" value="Sí"><span class="radio-label">Sí</span></label>
+                <label class="radio-option"><input type="radio" name="inicio_actividades" value="No"><span class="radio-label">No</span></label>
+              </div>
+            </div>
+            <div class="field-group">
+              <label class="field-label">¿Proyecto incluye IVA?</label>
+              <div class="radio-group">
+                <label class="radio-option"><input type="radio" name="incluye_iva" value="Sí"><span class="radio-label">Sí</span></label>
+                <label class="radio-option"><input type="radio" name="incluye_iva" value="No"><span class="radio-label">No</span></label>
+              </div>
+            </div>
+            <div class="field-group">
+              <label class="field-label">¿Con consultor/a?</label>
+              <div class="radio-group">
+                <label class="radio-option"><input type="radio" name="con_consultor" value="Sí"><span class="radio-label">Sí</span></label>
+                <label class="radio-option"><input type="radio" name="con_consultor" value="No"><span class="radio-label">No</span></label>
+              </div>
+            </div>
+            <div class="field-group">
+              <label class="field-label" for="f_nombre_consultor">Nombre del Consultor/a</label>
+              <input type="text" id="f_nombre_consultor" class="field-input" placeholder="Nombre completo del consultor/a" autocomplete="off">
+            </div>
           </div>
         </div>
       </div>
@@ -549,9 +565,7 @@
         </div>
       </div>
 
-      <!-- ════════════════════════════════════════════════
-           SECCIÓN 8: DIBUJO ESQUEMÁTICO (CROQUIS)
-           ════════════════════════════════════════════════ -->
+      <!-- CROQUIS -->
       <div class="form-section">
         <div class="section-header">
           <span class="section-icon">🗺️</span>
@@ -559,57 +573,32 @@
           <span class="section-subtitle">Importe una captura de Google Maps y dibuje sobre ella con el S-Pen</span>
         </div>
         <div class="section-body">
-
-          <!-- Botón importar imagen -->
           <div class="croquis-import-row">
             <button type="button" id="croquis-import-btn" class="btn-croquis-import">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20">
-                <rect x="3" y="3" width="18" height="18" rx="2"/>
-                <circle cx="8.5" cy="8.5" r="1.5"/>
-                <polyline points="21 15 16 10 5 21"/>
-              </svg>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
               Importar imagen desde galería
             </button>
             <div id="croquis-saved-indicator" style="display:none;">
               <span class="croquis-saved-badge">✓ Croquis guardado</span>
             </div>
           </div>
-
-          <!-- Canvas de dibujo -->
           <div class="croquis-wrap" id="croquis-wrap">
             <div id="croquis-empty">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="48" height="48" style="opacity:.4;">
-                <rect x="3" y="3" width="18" height="18" rx="2"/>
-                <path d="M3 9h18M9 21V9"/>
-              </svg>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="48" height="48" style="opacity:.4;"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg>
               <p><strong>Sin imagen de fondo</strong></p>
-              <p style="font-size:.8rem;opacity:.7;">
-                1. Abra Google Maps en otra pestaña<br>
-                2. Posicione el área del predio<br>
-                3. Tome captura (Vol↓ + Power)<br>
-                4. Importe aquí con el botón de arriba
-              </p>
+              <p style="font-size:.8rem;opacity:.7;">1. Abra Google Maps en otra pestaña<br>2. Posicione el área del predio<br>3. Tome captura (Vol↓ + Power)<br>4. Importe aquí con el botón de arriba</p>
             </div>
             <canvas id="croquis-canvas"></canvas>
-
-            <!-- Toolbar de herramientas -->
             <div id="croquis-toolbar">
-              <!-- Herramientas -->
               <div class="croquis-group">
                 <span class="croquis-group-label">Herramienta</span>
                 <button class="croquis-tool-btn active" data-tool="pen" title="Lápiz libre">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/>
-                  </svg>
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
                 </button>
                 <button class="croquis-tool-btn" data-tool="line" title="Línea recta">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <line x1="5" y1="19" x2="19" y2="5"/>
-                  </svg>
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="5" y1="19" x2="19" y2="5"/></svg>
                 </button>
               </div>
-
-              <!-- Colores -->
               <div class="croquis-group">
                 <span class="croquis-group-label">Color</span>
                 <button class="croquis-color-btn color-negro active" data-color="#000000" title="Negro"></button>
@@ -618,52 +607,28 @@
                 <button class="croquis-color-btn color-amarillo"     data-color="#F9A825" title="Amarillo"></button>
                 <button class="croquis-color-btn color-blanco"       data-color="#FFFFFF" title="Blanco"></button>
               </div>
-
-              <!-- Grosor -->
               <div class="croquis-group">
                 <span class="croquis-group-label">Grosor</span>
-                <button class="croquis-width-btn w-fino" data-width="2" title="Fino">
-                  <span style="width:3px;height:3px;"></span>
-                </button>
-                <button class="croquis-width-btn w-medio active" data-width="4" title="Medio">
-                  <span style="width:6px;height:6px;"></span>
-                </button>
-                <button class="croquis-width-btn w-grueso" data-width="8" title="Grueso">
-                  <span style="width:10px;height:10px;"></span>
-                </button>
+                <button class="croquis-width-btn" data-width="2" title="Fino"><span style="width:3px;height:3px;"></span></button>
+                <button class="croquis-width-btn active" data-width="4" title="Medio"><span style="width:6px;height:6px;"></span></button>
+                <button class="croquis-width-btn" data-width="8" title="Grueso"><span style="width:10px;height:10px;"></span></button>
               </div>
             </div>
-
-            <!-- Acciones -->
             <div id="croquis-actions">
-              <button type="button" id="croquis-undo-btn" class="btn-croquis-action" title="Deshacer último trazo">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
-                  <polyline points="9 14 4 9 9 4"/><path d="M20 20v-7a4 4 0 00-4-4H4"/>
-                </svg>
-                Deshacer
+              <button type="button" id="croquis-undo-btn" class="btn-croquis-action">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><polyline points="9 14 4 9 9 4"/><path d="M20 20v-7a4 4 0 00-4-4H4"/></svg>Deshacer
               </button>
-              <button type="button" id="croquis-clear-drawing-btn" class="btn-croquis-action" title="Borrar solo los trazos, mantener imagen de fondo">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
-                  <path d="M20 20H7L3 16l13-13 4 4-6.5 6.5"/><line x1="2" y1="22" x2="22" y2="2" style="display:none"/>
-                </svg>
-                Limpiar trazos
+              <button type="button" id="croquis-clear-drawing-btn" class="btn-croquis-action">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><path d="M20 20H7L3 16l13-13 4 4-6.5 6.5"/></svg>Limpiar trazos
               </button>
-              <button type="button" id="croquis-clear-all-btn" class="btn-croquis-action danger" title="Eliminar imagen y trazos">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
-                  <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/>
-                </svg>
-                Limpiar todo
+              <button type="button" id="croquis-clear-all-btn" class="btn-croquis-action danger">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/></svg>Limpiar todo
               </button>
-              <button type="button" id="croquis-save-btn" class="btn-croquis-action save" title="Guardar croquis en la ficha">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
-                  <path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"/>
-                  <polyline points="17 21 17 13 7 13 7 21"/>
-                </svg>
-                Guardar croquis
+              <button type="button" id="croquis-save-btn" class="btn-croquis-action save">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/></svg>Guardar croquis
               </button>
             </div>
           </div>
-
         </div>
       </div>
 
@@ -732,6 +697,32 @@
   </div><!-- /form-area -->
 </div><!-- /main-layout -->
 
+<!-- CROP MODAL -->
+<div id="crop-overlay" class="crop-overlay hidden">
+  <p class="crop-tip">Arrastre para seleccionar el área a recortar (proporción 4:3)</p>
+  <div class="crop-container" id="crop-container">
+    <img id="crop-img" src="" alt="Imagen a recortar">
+    <div class="crop-selection" id="crop-selection" style="display:none;"></div>
+  </div>
+  <div class="crop-actions">
+    <button id="crop-cancel-btn" class="action-btn secondary">Cancelar</button>
+    <button id="crop-confirm-btn" class="action-btn primary">Recortar y usar</button>
+  </div>
+</div>
+
+<!-- FOTO CROP MODAL -->
+<div id="foto-crop-overlay" class="crop-overlay hidden">
+  <p class="crop-tip">Arrastre para seleccionar el área (proporción 3:4 — vertical)</p>
+  <div class="crop-container" id="foto-crop-container">
+    <img id="foto-crop-img" src="" alt="Imagen a recortar">
+    <div class="crop-selection" id="foto-crop-selection" style="display:none;"></div>
+  </div>
+  <div class="crop-actions">
+    <button id="foto-crop-cancel-btn" class="action-btn secondary">Cancelar</button>
+    <button id="foto-crop-confirm-btn" class="action-btn primary">Recortar y usar</button>
+  </div>
+</div>
+
 <!-- MODALES -->
 <div id="modal-post-save" class="modal-overlay">
   <div class="modal-box">
@@ -764,7 +755,6 @@
     <div class="modal-icon">⚠️</div>
     <h3 class="modal-title">¿Descartar esta ficha?</h3>
     <p class="modal-body">Esta ficha nunca fue guardada. Si la descartas, <strong>todos los datos se perderán</strong>.</p>
-    <p class="modal-body">Esta acción no se puede deshacer.</p>
     <div class="modal-footer">
       <button id="modal-discard-cancel" class="action-btn secondary">Volver</button>
       <button id="modal-discard-confirm" class="action-btn danger">Descartar</button>
@@ -776,7 +766,7 @@
   <div class="modal-box">
     <div class="modal-icon">⚠️</div>
     <h3 class="modal-title">RUT no ingresado</h3>
-    <p class="modal-body">El RUT del agricultor/a no ha sido completado. Se recomienda ingresarlo para una correcta identificación de la ficha.</p>
+    <p class="modal-body">El RUT del agricultor/a no ha sido completado. Se recomienda ingresarlo para una correcta identificación.</p>
     <p class="modal-body">¿Desea guardar de todas formas?</p>
     <div class="modal-footer">
       <button id="modal-rut-cancel" class="action-btn secondary">Volver a completar</button>
@@ -789,7 +779,7 @@
   <div class="modal-box">
     <div class="modal-icon">✍️</div>
     <h3 class="modal-title">Firma no registrada</h3>
-    <p class="modal-body">El agricultor/a no ha firmado la ficha y no se marcó "No firma".</p>
+    <p class="modal-body">El agricultor/a no ha firmado y no se marcó "No firma".</p>
     <p class="modal-body">¿Desea guardar de todas formas?</p>
     <div class="modal-footer">
       <button id="modal-firma-cancel" class="action-btn secondary">Volver a firmar</button>
@@ -804,6 +794,7 @@
 <script>
 'use strict';
 
+/* ── Comunas ─────────────────────────────────────────── */
 const COMUNAS_NUBLE = {
   'Diguillín': ['Chillán','Bulnes','Chillán Viejo','El Carmen','Pemuco','Pinto','Quillón','San Ignacio','Yungay'],
   'Punilla':   ['San Carlos','Coihueco','Ñiquén','San Fabián','San Nicolás'],
@@ -818,6 +809,14 @@ window.updateComunasDemanda = function(provincia) {
   });
 };
 document.getElementById('f_provincia')?.addEventListener('change', (e) => window.updateComunasDemanda(e.target.value));
+
+/* ── Email: bloquear espacios ─────────────────────────── */
+document.getElementById('f_email')?.addEventListener('keydown', (e) => {
+  if (e.key === ' ') e.preventDefault();
+});
+document.getElementById('f_email')?.addEventListener('input', (e) => {
+  e.target.value = e.target.value.replace(/\s/g, '');
+});
 
 /* ── Fechas DD/MM/AAAA ───────────────────────────────── */
 document.querySelectorAll('.date-input').forEach(input => {
@@ -842,16 +841,10 @@ document.querySelectorAll('.date-hidden-cal').forEach(cal => {
   });
 });
 
-/* ── Pueblos originarios / Consultor ─────────────────── */
+/* ── Pueblos originarios ─────────────────────────────── */
 document.querySelectorAll('input[name="pueblos_originarios"]').forEach(r => {
   r.addEventListener('change', () => {
     const g = document.getElementById('grupo-cual-pueblo');
-    if (g) g.style.display = r.value === 'Sí' ? 'flex' : 'none';
-  });
-});
-document.querySelectorAll('input[name="con_consultor"]').forEach(r => {
-  r.addEventListener('change', () => {
-    const g = document.getElementById('grupo-consultor');
     if (g) g.style.display = r.value === 'Sí' ? 'flex' : 'none';
   });
 });
@@ -877,6 +870,11 @@ _hamburger?.addEventListener('click', () => _sidebar.classList.contains('mobile-
 _overlay?.addEventListener('click', closeSidebar);
 document.getElementById('records-list')?.addEventListener('click', () => { if(window.innerWidth<=900) closeSidebar(); });
 
+/* ── Cerrar sidebar al crear nueva ficha en móvil ─────── */
+document.getElementById('new-record-btn')?.addEventListener('click', () => {
+  if (window.innerWidth <= 900) setTimeout(closeSidebar, 150);
+}, true);
+
 /* ── Action bar observer ─────────────────────────────── */
 const _actionBar = document.getElementById('action-bar');
 const _formWrap  = document.getElementById('form-wrapper');
@@ -886,11 +884,158 @@ if (_formWrap && _actionBar) {
   }).observe(_formWrap, { attributes: true, attributeFilter: ['style'] });
 }
 
-/* ── Indicador croquis guardado ──────────────────────── */
-window.addEventListener('cnr:croquis-saved', () => {
-  const ind = document.getElementById('croquis-saved-indicator');
-  if (ind) ind.style.display = 'block';
-});
+/* ══════════════════════════════════════════════════════
+   MÓDULO DE RECORTE (CROP)
+   Croquis: 4:3 | Foto: 3:4
+   ══════════════════════════════════════════════════════ */
+const CropModule = (() => {
+  let _mode       = null; // 'croquis' | 'foto'
+  let _imgEl      = null;
+  let _selEl      = null;
+  let _containerEl= null;
+  let _overlayEl  = null;
+  let _ratio      = 4/3;
+  let _dragging   = false;
+  let _startX     = 0, _startY = 0;
+  let _sel        = { x:0, y:0, w:0, h:0 };
+  let _originalFile = null;
+  let _onConfirm  = null;
+
+  function open(file, mode, onConfirm) {
+    _mode      = mode;
+    _ratio     = mode === 'foto' ? 3/4 : 4/3;
+    _onConfirm = onConfirm;
+    _originalFile = file;
+
+    const overlayId   = mode === 'foto' ? 'foto-crop-overlay'    : 'crop-overlay';
+    const imgId       = mode === 'foto' ? 'foto-crop-img'         : 'crop-img';
+    const selId       = mode === 'foto' ? 'foto-crop-selection'   : 'crop-selection';
+    const containerId = mode === 'foto' ? 'foto-crop-container'   : 'crop-container';
+
+    _overlayEl    = document.getElementById(overlayId);
+    _imgEl        = document.getElementById(imgId);
+    _selEl        = document.getElementById(selId);
+    _containerEl  = document.getElementById(containerId);
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      _imgEl.src = e.target.result;
+      _imgEl.onload = () => {
+        _overlayEl.classList.remove('hidden');
+        _selEl.style.display = 'none';
+        _bindEvents();
+      };
+    };
+    reader.readAsDataURL(file);
+  }
+
+  function _bindEvents() {
+    _containerEl.addEventListener('pointerdown', _onDown);
+    _containerEl.addEventListener('pointermove', _onMove);
+    _containerEl.addEventListener('pointerup',   _onUp);
+  }
+
+  function _unbindEvents() {
+    _containerEl.removeEventListener('pointerdown', _onDown);
+    _containerEl.removeEventListener('pointermove', _onMove);
+    _containerEl.removeEventListener('pointerup',   _onUp);
+  }
+
+  function _getPos(e) {
+    const rect = _containerEl.getBoundingClientRect();
+    return {
+      x: Math.max(0, Math.min(e.clientX - rect.left, rect.width)),
+      y: Math.max(0, Math.min(e.clientY - rect.top,  rect.height)),
+    };
+  }
+
+  function _onDown(e) {
+    e.preventDefault();
+    _dragging = true;
+    const pos = _getPos(e);
+    _startX = pos.x; _startY = pos.y;
+    _selEl.style.display = 'block';
+    _containerEl.setPointerCapture(e.pointerId);
+  }
+
+  function _onMove(e) {
+    if (!_dragging) return;
+    e.preventDefault();
+    const pos = _getPos(e);
+    let w = pos.x - _startX;
+    let h = pos.y - _startY;
+    // Forzar proporción fija
+    if (Math.abs(w) > Math.abs(h * _ratio)) {
+      h = w / _ratio;
+    } else {
+      w = h * _ratio;
+    }
+    // Solo hacia abajo-derecha por simplicidad en tablet
+    _sel.x = Math.min(_startX, _startX + w);
+    _sel.y = Math.min(_startY, _startY + h);
+    _sel.w = Math.abs(w);
+    _sel.h = Math.abs(h);
+
+    _selEl.style.left   = _sel.x + 'px';
+    _selEl.style.top    = _sel.y + 'px';
+    _selEl.style.width  = _sel.w + 'px';
+    _selEl.style.height = _sel.h + 'px';
+  }
+
+  function _onUp(e) {
+    _dragging = false;
+  }
+
+  function confirm() {
+    if (_sel.w < 10 || _sel.h < 10) {
+      // Sin selección → usar imagen completa
+      if (_onConfirm) _onConfirm(_originalFile);
+      close();
+      return;
+    }
+    // Calcular escala entre img display y real
+    const displayW = _imgEl.clientWidth;
+    const displayH = _imgEl.clientHeight;
+    const realW    = _imgEl.naturalWidth;
+    const realH    = _imgEl.naturalHeight;
+    const scaleX   = realW / displayW;
+    const scaleY   = realH / displayH;
+
+    const canvas = document.createElement('canvas');
+    const cw = Math.round(_sel.w * scaleX);
+    const ch = Math.round(_sel.h * scaleY);
+    canvas.width  = cw;
+    canvas.height = ch;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(_imgEl,
+      Math.round(_sel.x * scaleX), Math.round(_sel.y * scaleY), cw, ch,
+      0, 0, cw, ch
+    );
+    canvas.toBlob((blob) => {
+      const file = new File([blob], 'crop.jpg', { type: 'image/jpeg' });
+      if (_onConfirm) _onConfirm(file);
+      close();
+    }, 'image/jpeg', 0.9);
+  }
+
+  function close() {
+    if (_overlayEl) _overlayEl.classList.add('hidden');
+    _unbindEvents();
+    _sel = { x:0, y:0, w:0, h:0 };
+    _dragging = false;
+  }
+
+  return { open, confirm, close };
+})();
+
+/* ── Botones del crop modal ──────────────────────────── */
+document.getElementById('crop-cancel-btn')?.addEventListener('click',      () => CropModule.close());
+document.getElementById('crop-confirm-btn')?.addEventListener('click',     () => CropModule.confirm());
+document.getElementById('foto-crop-cancel-btn')?.addEventListener('click', () => CropModule.close());
+document.getElementById('foto-crop-confirm-btn')?.addEventListener('click',() => CropModule.confirm());
+
+/* ── Exponer CropModule globalmente para app_demanda.js ─ */
+window.CropModule = CropModule;
 
 /* ── Service Worker ──────────────────────────────────── */
 if ('serviceWorker' in navigator) {

@@ -13,7 +13,7 @@ const CONFIG = {
   GOOGLE_CLIENT_ID:  '353831203919-9uf4jmk8he5df4dvvpdoq0dle1jmeiju.apps.googleusercontent.com',
   DRIVE_FOLDER_NAME: 'CNR_Seguimiento',
   DB_NAME:           'cnr_seguimiento',
-  DB_VERSION:        1,
+  DB_VERSION:        2,
   STORE_NAME:        'registros',
   TIPO_FICHA:        'Seguimiento CNR',
 };

@@ -31,4 +31,73 @@ self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
       return cache.addAll(OFFLINE_URLS).catch(err => {
-        con
+        console.warn('[SW] Algunos recursos no cacheados:', err);
+      });
+    }).then(() => self.skipWaiting())
+  );
+});
+
+/* ── Activación: limpiar caches anteriores ───────────── */
+self.addEventListener('activate', (event) => {
+  event.waitUntil(
+    caches.keys().then((keys) =>
+      Promise.all(
+        keys
+          .filter(key => key !== CACHE_NAME)
+          .map(key => {
+            console.log('[SW] Eliminando cache antiguo:', key);
+            return caches.delete(key);
+          })
+      )
+    ).then(() => self.clients.claim())
+  );
+});
+
+/* ── Fetch: Cache First para assets locales ──────────── */
+self.addEventListener('fetch', (event) => {
+  const url = new URL(event.request.url);
+
+  if (
+    url.hostname.includes('googleapis.com') ||
+    url.hostname.includes('accounts.google.com') ||
+    url.hostname.includes('gstatic.com') ||
+    event.request.method !== 'GET'
+  ) {
+    return;
+  }
+
+  event.respondWith(
+    caches.match(event.request).then((cached) => {
+      if (cached) return cached;
+
+      return fetch(event.request)
+        .then((response) => {
+          if (
+            response &&
+            response.status === 200 &&
+            response.type !== 'opaque' &&
+            url.pathname.startsWith('/CNR/')
+          ) {
+            const clone = response.clone();
+            caches.open(CACHE_NAME).then(cache => cache.put(event.request, clone));
+          }
+          return response;
+        })
+        .catch(() => {
+          if (event.request.mode === 'navigate') {
+            if (url.pathname.includes('/cnr-ficha_visita/')) {
+              return caches.match('/CNR/cnr-ficha_visita/index.html');
+            }
+            return caches.match('/CNR/cnr-ficha_seguimiento/index.html');
+          }
+        });
+    })
+  );
+});
+
+/* ── Mensajes desde la app ───────────────────────────── */
+self.addEventListener('message', (event) => {
+  if (event.data?.type === 'SKIP_WAITING') {
+    self.skipWaiting();
+  }
+});

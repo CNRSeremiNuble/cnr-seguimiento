@@ -1,7 +1,7 @@
 /**
  * app_demanda.js — Lógica principal Ficha Visita Terreno CNR
- * IndexedDB compartida · Exportación JSON/CSV · Google Drive OAuth2
- * v2.0 — Agrega módulo de croquis con dibujo sobre imagen
+ * v3.0 — Fix sidebar, email, firma modo oscuro, INDAP programa,
+ *         consultor siempre visible, crop 4:3 / 3:4, foto más alta
  */
 
 'use strict';
@@ -32,7 +32,7 @@ const State = {
   firmaData:     null,
   firmaModified: false,
   foto:          null,
-  croquis:       null,  // { dataUrl, timestamp }
+  croquis:       null,
 };
 
 /* ══════════════════════════════════════════════════════════
@@ -40,9 +40,8 @@ const State = {
    ══════════════════════════════════════════════════════════ */
 function createEmptyRecord() {
   const today = dateToISO(new Date());
-  const id    = generateId();
   return {
-    _id:              id,
+    _id:              generateId(),
     _created:         new Date().toISOString(),
     _modified:        new Date().toISOString(),
     _modified_count:  0,
@@ -51,7 +50,6 @@ function createEmptyRecord() {
     tipo_ficha:       CONFIG.TIPO_FICHA,
 
     fecha_visita:            today,
-    codigo_vinculado:        '',
     nombre:                  '',
     rut:                     '',
     telefono:                '',
@@ -72,11 +70,11 @@ function createEmptyRecord() {
     firma_data:              null,
     no_firma:                false,
 
-    viv_norte:  '', viv_este:  '', viv_datum: 'WGS84', viv_huso:  '19',
+    viv_norte: '', viv_este: '', viv_datum: 'WGS84', viv_huso: '19',
 
     tipo_fuente_agua:        '',
-    cap_norte:  '', cap_este:  '', cap_datum: 'WGS84', cap_huso:  '19',
-    proy_norte: '', proy_este: '', proy_datum:'WGS84', proy_huso: '19',
+    cap_norte: '', cap_este: '', cap_datum: 'WGS84', cap_huso: '19',
+    proy_norte:'', proy_este:'', proy_datum:'WGS84', proy_huso:'19',
     caracteristicas_fuente:  '',
     obs_fuente:              '',
 
@@ -86,11 +84,11 @@ function createEmptyRecord() {
     docs_agua:               false,
     obs_tenencia:            '',
 
-    cultivo_actual:          '', cultivo_proyecto:  '',
-    superficie_actual:       '', superficie_proyecto: '',
-    metodo_actual:           '', metodo_proyecto:   '',
-    meses_actual:            '', meses_proyecto:    '',
-    obras_actual:            '', obras_proyecto:    '',
+    cultivo_actual: '', cultivo_proyecto: '',
+    superficie_actual: '', superficie_proyecto: '',
+    metodo_actual: '', metodo_proyecto: '',
+    meses_actual: '', meses_proyecto: '',
+    obras_actual: '', obras_proyecto: '',
     obs_caudal:              '',
 
     energia_tipos:           [],
@@ -98,11 +96,12 @@ function createEmptyRecord() {
     energia_desc:            '',
 
     indap_participa:         '',
+    indap_programa:          '',   // NUEVO: nombre del programa INDAP
     indap_acreditado:        '',
     inicio_actividades:      '',
     incluye_iva:             '',
     con_consultor:           '',
-    nombre_consultor:        '',
+    nombre_consultor:        '',   // siempre visible ahora
 
     nombre_encuestador:      '',
     cargo_encuestador:       '',
@@ -111,15 +110,14 @@ function createEmptyRecord() {
     observaciones_generales: '',
 
     foto:    null,
-    croquis: null,  // { dataUrl, timestamp }
+    croquis: null,
   };
 }
 
 function generateId() {
   const now  = new Date();
   const date = `${now.getFullYear()}${String(now.getMonth()+1).padStart(2,'0')}${String(now.getDate()).padStart(2,'0')}`;
-  const rand = Math.random().toString(36).slice(2,10).toUpperCase();
-  return `VT-${date}-${rand}`;
+  return `VT-${date}-${Math.random().toString(36).slice(2,10).toUpperCase()}`;
 }
 
 /* ══════════════════════════════════════════════════════════
@@ -145,8 +143,7 @@ function formatDateShort(iso) {
   if (!iso) return '';
   try {
     return new Date(iso).toLocaleString('es-CL',{
-      day:'2-digit', month:'2-digit', year:'numeric',
-      hour:'2-digit', minute:'2-digit'
+      day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit'
     });
   } catch { return iso; }
 }
@@ -203,8 +200,7 @@ function collectFormValues() {
   if (!r) return;
 
   const simpleFields = [
-    'codigo_vinculado','nombre','rut','telefono','email',
-    'n_grupo_familiar','otros_datos','sector',
+    'nombre','rut','telefono','email','n_grupo_familiar','otros_datos','sector',
     'tipo_fuente_agua','caracteristicas_fuente','obs_fuente',
     'tipo_tenencia_tierra','tipo_tenencia_agua','obs_tenencia',
     'cultivo_actual','cultivo_proyecto',
@@ -212,17 +208,18 @@ function collectFormValues() {
     'metodo_actual','metodo_proyecto',
     'meses_actual','meses_proyecto',
     'obras_actual','obras_proyecto','obs_caudal',
-    'energia_desc','nombre_consultor',
+    'energia_desc','nombre_consultor','indap_programa',
     'nombre_encuestador','cargo_encuestador','contacto_encuestador',
     'observaciones_generales','aporte_otro_desc',
-    'viv_norte','viv_este','viv_huso',
-    'cap_norte','cap_este','cap_huso',
-    'proy_norte','proy_este','proy_huso',
+    'viv_norte','viv_este','cap_norte','cap_este','proy_norte','proy_este',
   ];
   simpleFields.forEach(field => {
     const el = document.getElementById(`f_${field}`);
     if (el) r[field] = el.value.trim();
   });
+
+  // Email: eliminar espacios residuales
+  if (r.email) r.email = r.email.replace(/\s/g, '');
 
   const provEl = document.getElementById('f_provincia');
   const comEl  = document.getElementById('f_comuna');
@@ -247,23 +244,17 @@ function collectFormValues() {
     r[name] = checked ? checked.value : '';
   });
 
-  const cualpuebloEl = document.getElementById('f_cual_pueblo');
-  if (cualpuebloEl) r.cual_pueblo = cualpuebloEl.value.trim();
+  const cualPuebloEl = document.getElementById('f_cual_pueblo');
+  if (cualPuebloEl) r.cual_pueblo = cualPuebloEl.value.trim();
 
-  r.aporte_tipos = Array.from(
-    document.querySelectorAll('input[name="aporte"]:checked')
-  ).map(cb => cb.value);
-
-  r.energia_tipos = Array.from(
-    document.querySelectorAll('input[name="energia"]:checked')
-  ).map(cb => cb.value);
+  r.aporte_tipos  = Array.from(document.querySelectorAll('input[name="aporte"]:checked')).map(cb => cb.value);
+  r.energia_tipos = Array.from(document.querySelectorAll('input[name="energia"]:checked')).map(cb => cb.value);
 
   r.docs_tierra = document.getElementById('cb_docs_tierra')?.checked || false;
   r.docs_agua   = document.getElementById('cb_docs_agua')?.checked   || false;
   r.no_firma    = document.getElementById('cb_no_firma')?.checked    || false;
 
   if (State.firmaModified) r.firma_data = State.firmaData;
-
   r.foto    = State.foto;
   r.croquis = State.croquis;
 
@@ -282,8 +273,7 @@ function loadRecordToForm(record) {
   State.croquis       = record.croquis || null;
 
   const simpleFields = [
-    'codigo_vinculado','nombre','rut','telefono','email',
-    'n_grupo_familiar','otros_datos','sector',
+    'nombre','rut','telefono','email','n_grupo_familiar','otros_datos','sector',
     'tipo_fuente_agua','caracteristicas_fuente','obs_fuente',
     'tipo_tenencia_tierra','tipo_tenencia_agua','obs_tenencia',
     'cultivo_actual','cultivo_proyecto',
@@ -291,7 +281,7 @@ function loadRecordToForm(record) {
     'metodo_actual','metodo_proyecto',
     'meses_actual','meses_proyecto',
     'obras_actual','obras_proyecto','obs_caudal',
-    'energia_desc','nombre_consultor',
+    'energia_desc','nombre_consultor','indap_programa',
     'nombre_encuestador','cargo_encuestador','contacto_encuestador',
     'observaciones_generales','aporte_otro_desc',
     'viv_norte','viv_este','cap_norte','cap_este','proy_norte','proy_este',
@@ -330,10 +320,8 @@ function loadRecordToForm(record) {
     });
   });
 
-  const grupoPueblo    = document.getElementById('grupo-cual-pueblo');
-  const grupoConsultor = document.getElementById('grupo-consultor');
-  if (grupoPueblo)    grupoPueblo.style.display    = record.pueblos_originarios === 'Sí' ? 'flex' : 'none';
-  if (grupoConsultor) grupoConsultor.style.display  = record.con_consultor       === 'Sí' ? 'flex' : 'none';
+  const grupoPueblo = document.getElementById('grupo-cual-pueblo');
+  if (grupoPueblo) grupoPueblo.style.display = record.pueblos_originarios === 'Sí' ? 'flex' : 'none';
 
   document.querySelectorAll('input[name="aporte"]').forEach(cb => {
     cb.checked = (record.aporte_tipos || []).includes(cb.value);
@@ -357,30 +345,25 @@ function loadRecordToForm(record) {
   if (idDisplay) {
     const modCount = record._modified_count || 0;
     const modLabel = modCount > 1
-      ? `<span class="mod-indicator">✱ Mod. ${modCount - 1}x · ${formatDateShort(record._modified)}</span>`
+      ? `<span class="mod-indicator">✱ Mod. ${modCount-1}x · ${formatDateShort(record._modified)}</span>`
       : '';
-    const syncLabel = record._synced ? '✓ Sync' : '⏳ Local';
-    idDisplay.innerHTML = `<span style="opacity:.6">${record._id}</span> ${modLabel} <span>${syncLabel}</span>`;
+    idDisplay.innerHTML = `<span style="opacity:.6">${record._id}</span> ${modLabel} <span>${record._synced ? '✓ Sync' : '⏳ Local'}</span>`;
   }
 
   document.getElementById('no-record-msg').style.display = 'none';
   document.getElementById('form-wrapper').style.display  = 'flex';
 
-  // Actualizar etiqueta botón descartar/cerrar
   const discardLabel = document.getElementById('discard-btn-label');
-  if (discardLabel) {
-    discardLabel.textContent = (record._modified_count === 0) ? 'Descartar' : 'Cerrar';
-  }
+  if (discardLabel) discardLabel.textContent = (record._modified_count === 0) ? 'Descartar' : 'Cerrar';
 }
 
 /* ══════════════════════════════════════════════════════════
-   GUARDAR REGISTRO
+   GUARDAR
    ══════════════════════════════════════════════════════════ */
 async function saveCurrentRecord() {
   if (!State.currentRecord) return;
   collectFormValues();
   const r = State.currentRecord;
-
   if (!r.rut || r.rut.trim() === '') {
     document.getElementById('modal-warn-rut')?.classList.add('open');
     return;
@@ -404,48 +387,35 @@ async function _doSave() {
   if (State.isOnline) triggerSync();
   if (isFirstSave) showPostSaveModal();
   else showToast('Ficha actualizada ✓', 'success');
-
-  // Actualizar etiqueta a "Cerrar" tras primer guardado
   const discardLabel = document.getElementById('discard-btn-label');
   if (discardLabel) discardLabel.textContent = 'Cerrar';
 }
 
 /* ══════════════════════════════════════════════════════════
-   ELIMINAR REGISTRO
+   ELIMINAR
    ══════════════════════════════════════════════════════════ */
 let _pendingDeleteRecord = null;
 
 function showDeleteConfirm(record) {
   _pendingDeleteRecord = record;
-  const modal  = document.getElementById('modal-confirm-delete');
   const nameEl = document.getElementById('modal-delete-name');
   if (nameEl) nameEl.textContent = `${record._id} — ${record.nombre || 'Sin nombre'}`;
-  if (modal)  modal.classList.add('open');
+  document.getElementById('modal-confirm-delete')?.classList.add('open');
 }
 
 async function deleteRecord(record) {
   await dbDelete(record._id);
   State.records = State.records.filter(r => r._id !== record._id);
-
   if (record._synced && State.isOnline) {
-    try {
-      const token = State.driveToken || await requestDriveToken();
-      await markDeletedInDrive(token, record);
-    } catch (err) {
-      console.warn('No se pudo marcar eliminado en Drive:', err);
-    }
+    try { await markDeletedInDrive(State.driveToken || await requestDriveToken(), record); }
+    catch (err) { console.warn('No se pudo marcar en Drive:', err); }
   }
-
-  if (State.currentRecord && State.currentRecord._id === record._id) {
-    State.currentRecord = null;
-    State.firmaData     = null;
-    State.foto          = null;
-    State.croquis       = null;
+  if (State.currentRecord?._id === record._id) {
+    State.currentRecord = null; State.firmaData = null; State.foto = null; State.croquis = null;
     document.getElementById('no-record-msg').style.display = 'flex';
     document.getElementById('form-wrapper').style.display  = 'none';
     document.getElementById('action-bar').style.display    = 'none';
   }
-
   renderRecordsList();
   showToast('Ficha eliminada', 'success');
 }
@@ -453,16 +423,13 @@ async function deleteRecord(record) {
 async function markDeletedInDrive(token, record) {
   const rootId    = await driveGetOrCreateFolder(token, CONFIG.DRIVE_FOLDER_NAME);
   const projectId = await driveGetOrCreateFolder(token, record._id, rootId);
-  const csv = buildCSV([Object.assign({}, record, {
-    _deleted: true, _deletedAt: new Date().toISOString()
-  })]);
-  await driveUploadFile(token, projectId,
-    `ELIMINADO_${record._id}_visita.csv`,
-    new Blob([csv], { type: 'text/csv;charset=utf-8;' }), 'text/csv');
+  const csv = buildCSV([Object.assign({}, record, { _deleted: true, _deletedAt: new Date().toISOString() })]);
+  await driveUploadFile(token, projectId, `ELIMINADO_${record._id}_visita.csv`,
+    new Blob([csv], { type:'text/csv;charset=utf-8;' }), 'text/csv');
 }
 
 /* ══════════════════════════════════════════════════════════
-   FIRMA DEL AGRICULTOR
+   FIRMA — FONDO SIEMPRE BLANCO
    ══════════════════════════════════════════════════════════ */
 let _firmaCanvas  = null;
 let _firmaCtx     = null;
@@ -473,6 +440,11 @@ function initFirmaCanvas() {
   _firmaCanvas = document.getElementById('firma-canvas');
   if (!_firmaCanvas) return;
   _firmaCtx = _firmaCanvas.getContext('2d');
+
+  // Fondo blanco forzado — solución modo oscuro
+  _firmaCtx.fillStyle = '#FFFFFF';
+  _firmaCtx.fillRect(0, 0, _firmaCanvas.width, _firmaCanvas.height);
+
   _firmaCtx.strokeStyle = '#1a1a2e';
   _firmaCtx.lineWidth   = 2;
   _firmaCtx.lineCap     = 'round';
@@ -519,21 +491,24 @@ function _firmaEnd() {
     if (State.currentRecord) State.currentRecord.firma_data = State.firmaData;
   }
 }
+
 function clearFirma() {
   if (!_firmaCanvas || !_firmaCtx) return;
-  _firmaCtx.clearRect(0, 0, _firmaCanvas.width, _firmaCanvas.height);
-  _firmaHasData       = false;
-  State.firmaData     = null;
-  State.firmaModified = true;
+  _firmaCtx.fillStyle = '#FFFFFF';
+  _firmaCtx.fillRect(0, 0, _firmaCanvas.width, _firmaCanvas.height);
+  _firmaHasData = false; State.firmaData = null; State.firmaModified = true;
   if (State.currentRecord) State.currentRecord.firma_data = null;
   const wrap = document.getElementById('firma-canvas-wrap');
   const ph   = document.getElementById('firma-placeholder');
   if (wrap) { wrap.classList.remove('tiene-firma'); wrap.classList.remove('no-firma-marcada'); }
   if (ph)   ph.classList.remove('hidden');
 }
+
 function loadFirmaToCanvas(dataUrl, noFirma) {
   if (!_firmaCanvas || !_firmaCtx) return;
-  _firmaCtx.clearRect(0, 0, _firmaCanvas.width, _firmaCanvas.height);
+  // Limpiar con fondo blanco
+  _firmaCtx.fillStyle = '#FFFFFF';
+  _firmaCtx.fillRect(0, 0, _firmaCanvas.width, _firmaCanvas.height);
   _firmaHasData = false;
   const wrap = document.getElementById('firma-canvas-wrap');
   const ph   = document.getElementById('firma-placeholder');
@@ -557,13 +532,13 @@ function loadFirmaToCanvas(dataUrl, noFirma) {
     if (ph)   ph.classList.remove('hidden');
   }
 }
+
 function handleNoFirmaToggle(checked) {
   const wrap = document.getElementById('firma-canvas-wrap');
   if (checked) {
     if (wrap) { wrap.classList.add('no-firma-marcada'); wrap.classList.remove('tiene-firma'); }
-    _firmaCtx?.clearRect(0, 0, _firmaCanvas?.width, _firmaCanvas?.height);
-    _firmaHasData   = false;
-    State.firmaData = null;
+    _firmaCtx?.fillRect && (() => { _firmaCtx.fillStyle='#FFFFFF'; _firmaCtx.fillRect(0,0,_firmaCanvas.width,_firmaCanvas.height); })();
+    _firmaHasData = false; State.firmaData = null;
     if (State.currentRecord) { State.currentRecord.firma_data = null; State.currentRecord.no_firma = true; }
   } else {
     if (wrap) wrap.classList.remove('no-firma-marcada');
@@ -572,34 +547,44 @@ function handleNoFirmaToggle(checked) {
 }
 
 /* ══════════════════════════════════════════════════════════
-   FOTO ÚNICA DE REFERENCIA
+   FOTO DE REFERENCIA — con crop 3:4
    ══════════════════════════════════════════════════════════ */
 const MAX_WIDTH_IMG = 1280;
 const QUALITY_IMG   = 0.75;
 const MAX_KB_IMG    = 400;
 
 function captureFoto(fromCamera) {
-  const input    = document.createElement('input');
-  input.type     = 'file';
-  input.accept   = 'image/*';
+  const input  = document.createElement('input');
+  input.type   = 'file';
+  input.accept = 'image/*';
   if (fromCamera) input.capture = 'environment';
-  input.onchange = async (e) => {
+  input.onchange = (e) => {
     const file = e.target.files[0];
     if (!file) return;
-    try {
-      const foto = await processImage(file);
-      State.foto = foto;
-      if (State.currentRecord) State.currentRecord.foto = foto;
-      renderFoto();
-      showToast(`Foto agregada (${foto.sizeKB} KB)`, 'success');
-    } catch (err) {
-      showToast('Error al procesar la foto', 'error');
+    // Abrir crop 3:4 antes de procesar
+    if (window.CropModule) {
+      window.CropModule.open(file, 'foto', async (croppedFile) => {
+        try {
+          const foto = await processImage(croppedFile);
+          State.foto = foto;
+          if (State.currentRecord) State.currentRecord.foto = foto;
+          renderFoto();
+          showToast(`Foto agregada (${foto.sizeKB} KB)`, 'success');
+        } catch { showToast('Error al procesar la foto', 'error'); }
+      });
+    } else {
+      processImage(file).then(foto => {
+        State.foto = foto;
+        if (State.currentRecord) State.currentRecord.foto = foto;
+        renderFoto();
+        showToast(`Foto agregada (${foto.sizeKB} KB)`, 'success');
+      }).catch(() => showToast('Error al procesar la foto', 'error'));
     }
   };
   input.click();
 }
 
-async function processImage(file, maxKB = MAX_KB_IMG) {
+async function processImage(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = (e) => {
@@ -607,8 +592,8 @@ async function processImage(file, maxKB = MAX_KB_IMG) {
       img.onload = () => {
         let { width, height } = img;
         if (width > MAX_WIDTH_IMG || height > MAX_WIDTH_IMG) {
-          if (width >= height) { height = Math.round(height * (MAX_WIDTH_IMG/width)); width = MAX_WIDTH_IMG; }
-          else                 { width  = Math.round(width  * (MAX_WIDTH_IMG/height)); height = MAX_WIDTH_IMG; }
+          if (width >= height) { height = Math.round(height*(MAX_WIDTH_IMG/width)); width = MAX_WIDTH_IMG; }
+          else                 { width  = Math.round(width*(MAX_WIDTH_IMG/height)); height = MAX_WIDTH_IMG; }
         }
         const canvas = document.createElement('canvas');
         canvas.width = width; canvas.height = height;
@@ -616,7 +601,7 @@ async function processImage(file, maxKB = MAX_KB_IMG) {
         let quality = QUALITY_IMG;
         let dataUrl = canvas.toDataURL('image/jpeg', quality);
         let sizeKB  = Math.round((dataUrl.length * 3/4) / 1024);
-        while (sizeKB > maxKB && quality > 0.3) {
+        while (sizeKB > MAX_KB_IMG && quality > 0.3) {
           quality -= 0.1;
           dataUrl  = canvas.toDataURL('image/jpeg', quality);
           sizeKB   = Math.round((dataUrl.length * 3/4) / 1024);
@@ -657,172 +642,112 @@ function removeFoto() {
 }
 
 /* ══════════════════════════════════════════════════════════
-   MÓDULO CROQUIS — DIBUJO SOBRE IMAGEN
+   MÓDULO CROQUIS — con crop 4:3
    ══════════════════════════════════════════════════════════ */
 const Croquis = (() => {
-  let _canvas      = null;
-  let _ctx         = null;
-  let _bgImage     = null;   // Image object del fondo
-  let _tool        = 'pen';  // 'pen' | 'line'
-  let _color       = '#000000';
-  let _lineWidth   = 3;
-  let _drawing     = false;
-  let _startX      = 0;
-  let _startY      = 0;
-  let _snapshot    = null;   // ImageData para preview de línea recta
-  let _history     = [];     // stack de estados para deshacer
+  let _canvas = null, _ctx = null, _bgImage = null;
+  let _tool = 'pen', _color = '#000000', _lineWidth = 4;
+  let _drawing = false, _startX = 0, _startY = 0, _snapshot = null;
+  let _history = [];
   const MAX_HISTORY = 20;
 
   function init() {
     _canvas = document.getElementById('croquis-canvas');
     if (!_canvas) return;
     _ctx = _canvas.getContext('2d');
-
-    _canvas.addEventListener('pointerdown', _onDown,   { passive: false });
-    _canvas.addEventListener('pointermove', _onMove,   { passive: false });
-    _canvas.addEventListener('pointerup',   _onUp,     { passive: false });
-    _canvas.addEventListener('pointerout',  _onCancel, { passive: false });
+    _canvas.addEventListener('pointerdown', _onDown, { passive: false });
+    _canvas.addEventListener('pointermove', _onMove, { passive: false });
+    _canvas.addEventListener('pointerup',   _onUp,   { passive: false });
+    _canvas.addEventListener('pointerout',  _onCancel);
   }
 
   function _getPos(e) {
-    const rect   = _canvas.getBoundingClientRect();
-    const scaleX = _canvas.width  / rect.width;
-    const scaleY = _canvas.height / rect.height;
-    return { x: (e.clientX - rect.left) * scaleX, y: (e.clientY - rect.top) * scaleY };
+    const rect = _canvas.getBoundingClientRect();
+    return {
+      x: (e.clientX - rect.left) * (_canvas.width  / rect.width),
+      y: (e.clientY - rect.top)  * (_canvas.height / rect.height),
+    };
   }
 
   function _onDown(e) {
-    e.preventDefault();
-    _drawing = true;
-    const pos = _getPos(e);
-    _startX = pos.x;
-    _startY = pos.y;
+    e.preventDefault(); _drawing = true;
+    const pos = _getPos(e); _startX = pos.x; _startY = pos.y;
     _canvas.setPointerCapture(e.pointerId);
-
-    if (_tool === 'pen') {
-      _saveHistory();
-      _ctx.beginPath();
-      _ctx.moveTo(pos.x, pos.y);
-    } else if (_tool === 'line') {
-      _snapshot = _ctx.getImageData(0, 0, _canvas.width, _canvas.height);
-    }
+    if (_tool === 'pen') { _saveHistory(); _ctx.beginPath(); _ctx.moveTo(pos.x, pos.y); }
+    else if (_tool === 'line') { _snapshot = _ctx.getImageData(0, 0, _canvas.width, _canvas.height); }
   }
-
   function _onMove(e) {
-    if (!_drawing) return;
-    e.preventDefault();
+    if (!_drawing) return; e.preventDefault();
     const pos = _getPos(e);
-
     if (_tool === 'pen') {
-      _ctx.strokeStyle = _color;
-      _ctx.lineWidth   = _lineWidth;
-      _ctx.lineCap     = 'round';
-      _ctx.lineJoin    = 'round';
-      _ctx.lineTo(pos.x, pos.y);
-      _ctx.stroke();
+      _ctx.strokeStyle = _color; _ctx.lineWidth = _lineWidth;
+      _ctx.lineCap = 'round'; _ctx.lineJoin = 'round';
+      _ctx.lineTo(pos.x, pos.y); _ctx.stroke();
     } else if (_tool === 'line') {
-      // Restaurar snapshot para preview limpio
       _ctx.putImageData(_snapshot, 0, 0);
-      _ctx.beginPath();
-      _ctx.strokeStyle = _color;
-      _ctx.lineWidth   = _lineWidth;
-      _ctx.lineCap     = 'round';
-      _ctx.moveTo(_startX, _startY);
-      _ctx.lineTo(pos.x, pos.y);
-      _ctx.stroke();
+      _ctx.beginPath(); _ctx.strokeStyle = _color; _ctx.lineWidth = _lineWidth; _ctx.lineCap = 'round';
+      _ctx.moveTo(_startX, _startY); _ctx.lineTo(pos.x, pos.y); _ctx.stroke();
     }
   }
-
   function _onUp(e) {
-    if (!_drawing) return;
-    e.preventDefault();
-    _drawing = false;
-
+    if (!_drawing) return; e.preventDefault(); _drawing = false;
     if (_tool === 'line') {
       _saveHistory();
       const pos = _getPos(e);
       _ctx.putImageData(_snapshot, 0, 0);
-      _ctx.beginPath();
-      _ctx.strokeStyle = _color;
-      _ctx.lineWidth   = _lineWidth;
-      _ctx.lineCap     = 'round';
-      _ctx.moveTo(_startX, _startY);
-      _ctx.lineTo(pos.x, pos.y);
-      _ctx.stroke();
+      _ctx.beginPath(); _ctx.strokeStyle = _color; _ctx.lineWidth = _lineWidth; _ctx.lineCap = 'round';
+      _ctx.moveTo(_startX, _startY); _ctx.lineTo(pos.x, pos.y); _ctx.stroke();
       _snapshot = null;
     }
   }
-
-  function _onCancel(e) {
-    if (_drawing && _tool === 'line' && _snapshot) {
-      _ctx.putImageData(_snapshot, 0, 0);
-      _snapshot = null;
-    }
+  function _onCancel() {
+    if (_drawing && _tool === 'line' && _snapshot) { _ctx.putImageData(_snapshot, 0, 0); _snapshot = null; }
     _drawing = false;
   }
-
   function _saveHistory() {
     _history.push(_ctx.getImageData(0, 0, _canvas.width, _canvas.height));
     if (_history.length > MAX_HISTORY) _history.shift();
   }
 
-  function undo() {
-    if (!_history.length) return;
-    _ctx.putImageData(_history.pop(), 0, 0);
-  }
-
-  function clearDrawing() {
-    if (!_canvas || !_ctx) return;
-    _history = [];
-    _ctx.clearRect(0, 0, _canvas.width, _canvas.height);
-    if (_bgImage) _ctx.drawImage(_bgImage, 0, 0, _canvas.width, _canvas.height);
-  }
-
-  function clearAll() {
-    if (!_canvas || !_ctx) return;
-    _history  = [];
-    _bgImage  = null;
-    _ctx.clearRect(0, 0, _canvas.width, _canvas.height);
-    _updateEmptyState(true);
-  }
+  function undo()         { if (_history.length) _ctx.putImageData(_history.pop(), 0, 0); }
+  function clearDrawing() { _history = []; _ctx.clearRect(0,0,_canvas.width,_canvas.height); if (_bgImage) _ctx.drawImage(_bgImage,0,0,_canvas.width,_canvas.height); }
+  function clearAll()     { _history = []; _bgImage = null; _ctx.clearRect(0,0,_canvas.width,_canvas.height); _updateEmptyState(true); }
 
   function setTool(tool) {
     _tool = tool;
-    document.querySelectorAll('.croquis-tool-btn').forEach(b => {
-      b.classList.toggle('active', b.dataset.tool === tool);
-    });
+    document.querySelectorAll('.croquis-tool-btn').forEach(b => b.classList.toggle('active', b.dataset.tool === tool));
   }
-
   function setColor(color) {
     _color = color;
-    document.querySelectorAll('.croquis-color-btn').forEach(b => {
-      b.classList.toggle('active', b.dataset.color === color);
-    });
-    document.getElementById('croquis-color-indicator')?.style.setProperty('background', color);
+    document.querySelectorAll('.croquis-color-btn').forEach(b => b.classList.toggle('active', b.dataset.color === color));
   }
-
   function setLineWidth(w) {
     _lineWidth = w;
-    document.querySelectorAll('.croquis-width-btn').forEach(b => {
-      b.classList.toggle('active', b.dataset.width === String(w));
-    });
+    document.querySelectorAll('.croquis-width-btn').forEach(b => b.classList.toggle('active', b.dataset.width === String(w)));
   }
 
   function loadBackground(file) {
+    // Usar crop 4:3 antes de cargar
+    if (window.CropModule) {
+      window.CropModule.open(file, 'croquis', (croppedFile) => _loadFile(croppedFile));
+    } else {
+      _loadFile(file);
+    }
+  }
+
+  function _loadFile(file) {
     const reader = new FileReader();
     reader.onload = (e) => {
       const img = new Image();
       img.onload = () => {
-        // Ajustar canvas al aspecto de la imagen
         const maxW = _canvas.parentElement.clientWidth || 800;
         const ratio = img.height / img.width;
-        _canvas.width  = Math.min(img.width,  maxW);
+        _canvas.width  = Math.min(img.width, maxW);
         _canvas.height = Math.round(_canvas.width * ratio);
-        _history  = [];
-        _bgImage  = img;
+        _history = []; _bgImage = img;
         _ctx.drawImage(img, 0, 0, _canvas.width, _canvas.height);
         _updateEmptyState(false);
-        showToast('Imagen cargada. Dibuje sobre ella con el S-Pen.', 'success');
+        showToast('Imagen cargada. Dibuje con el S-Pen.', 'success');
       };
       img.src = e.target.result;
     };
@@ -836,11 +761,12 @@ const Croquis = (() => {
     if (emptyMsg) emptyMsg.style.display = isEmpty ? 'flex' : 'none';
     if (toolbar)  toolbar.style.display  = isEmpty ? 'none' : 'flex';
     if (actions)  actions.style.display  = isEmpty ? 'none' : 'flex';
+    const wrap = document.getElementById('croquis-wrap');
+    if (wrap) wrap.classList.toggle('tiene-imagen', !isEmpty);
   }
 
   function getDataUrl() {
     if (!_canvas) return null;
-    // Imagen aplanada: fondo + trazos
     return _canvas.toDataURL('image/jpeg', 0.85);
   }
 
@@ -850,8 +776,7 @@ const Croquis = (() => {
     img.onload = () => {
       _canvas.width  = img.width  || 800;
       _canvas.height = img.height || 600;
-      _history = [];
-      _bgImage = img;
+      _history = []; _bgImage = img;
       _ctx.drawImage(img, 0, 0);
       _updateEmptyState(false);
     };
@@ -862,16 +787,16 @@ const Croquis = (() => {
 })();
 
 function renderCroquis() {
-  if (State.croquis?.dataUrl) {
-    Croquis.loadFromDataUrl(State.croquis.dataUrl);
-  }
+  if (State.croquis?.dataUrl) Croquis.loadFromDataUrl(State.croquis.dataUrl);
 }
 
 function saveCroquis() {
   const dataUrl = Croquis.getDataUrl();
-  if (!dataUrl) return;
+  if (!dataUrl) { showToast('No hay croquis para guardar', 'error'); return; }
   State.croquis = { dataUrl, timestamp: new Date().toISOString() };
   if (State.currentRecord) State.currentRecord.croquis = State.croquis;
+  const ind = document.getElementById('croquis-saved-indicator');
+  if (ind) ind.style.display = 'block';
   showToast('Croquis guardado ✓', 'success');
 }
 
@@ -882,8 +807,7 @@ function latLonToUTM(lat, lon) {
   const a=6378137.0, f=1/298.257223563, b=a*(1-f), e2=1-(b*b)/(a*a), k0=0.9996;
   const latR=(lat*Math.PI)/180, lonR=(lon*Math.PI)/180;
   const husoNum = lon >= -72 ? 19 : 18;
-  const lonCentral = husoNum === 19 ? -69 : -75;
-  const lon0R = (lonCentral * Math.PI) / 180;
+  const lon0R = ((husoNum === 19 ? -69 : -75) * Math.PI) / 180;
   const N=a/Math.sqrt(1-e2*Math.sin(latR)**2), T=Math.tan(latR)**2;
   const C=(e2/(1-e2))*Math.cos(latR)**2, A=Math.cos(latR)*(lonR-lon0R);
   const e4=e2*e2, e6=e4*e2;
@@ -930,7 +854,7 @@ async function pasteFromMaps(target) {
   catch { texto = prompt('Pegue las coordenadas de Google Maps (ej: -36.641, -71.943):') || ''; }
   if (!texto) return;
   const match = texto.match(/(-?\d+\.\d+)[,\s]+(-?\d+\.\d+)/);
-  if (!match) { showToast('Formato no reconocido. Copie el pin desde Google Maps.', 'error'); return; }
+  if (!match) { showToast('Formato no reconocido', 'error'); return; }
   let lat = parseFloat(match[1]), lon = parseFloat(match[2]);
   if (lat > 0 && lon < 0) { lat = parseFloat(match[2]); lon = parseFloat(match[1]); }
   const { easting, northing, huso } = latLonToUTM(lat, lon);
@@ -939,83 +863,74 @@ async function pasteFromMaps(target) {
 }
 
 /* ══════════════════════════════════════════════════════════
-   CONSTRUCCIÓN CSV
+   CSV
    ══════════════════════════════════════════════════════════ */
 function csvHeaders() {
   return [
-    'Tipo_Ficha','ID_Visita','Fecha_Visita','Codigo_Vinculado',
+    'Tipo_Ficha','ID_Visita','Fecha_Visita',
     'Nombre','RUT','Telefono','Email','N_Grupo_Familiar','Otros_Datos',
     'Region','Provincia','Comuna','Sector',
     'Genero','Pueblos_Originarios','Cual_Pueblo',
-    'Aporte_Tipos','Aporte_Otro_Desc','Pct_Aporte',
-    'Interes_Programa','No_Firma',
+    'Aporte_Tipos','Aporte_Otro_Desc','Pct_Aporte','Interes_Programa','No_Firma',
     'Viv_Norte','Viv_Este','Viv_Datum','Viv_Huso',
     'Tipo_Fuente_Agua',
     'Cap_Norte','Cap_Este','Cap_Datum','Cap_Huso',
     'Proy_Norte','Proy_Este','Proy_Datum','Proy_Huso',
     'Caracteristicas_Fuente','Obs_Fuente',
-    'Tipo_Tenencia_Tierra','Docs_Tierra',
-    'Tipo_Tenencia_Agua','Docs_Agua','Obs_Tenencia',
+    'Tipo_Tenencia_Tierra','Docs_Tierra','Tipo_Tenencia_Agua','Docs_Agua','Obs_Tenencia',
     'Cultivo_Actual','Cultivo_Proyecto',
     'Superficie_Actual','Superficie_Proyecto',
     'Metodo_Actual','Metodo_Proyecto',
     'Meses_Actual','Meses_Proyecto',
     'Obras_Actual','Obras_Proyecto','Obs_Caudal',
     'Energia_Tipos','Red_Electrica_Disp','Energia_Desc',
-    'INDAP_Participa','INDAP_Acreditado',
+    'INDAP_Participa','INDAP_Programa','INDAP_Acreditado',
     'Inicio_Actividades','Incluye_IVA',
     'Con_Consultor','Nombre_Consultor',
     'Nombre_Encuestador','Cargo_Encuestador','Contacto_Encuestador',
     'Observaciones_Generales',
-    'Ruta_Foto_Referencia','Pie_Foto_Referencia',
-    'Ruta_Croquis',
-    'ID_Registro','Fecha_Creacion','Fecha_Modificacion',
-    'Veces_Modificado','Sincronizado',
+    'Ruta_Foto_Referencia','Pie_Foto_Referencia','Ruta_Croquis',
+    'ID_Registro','Fecha_Creacion','Fecha_Modificacion','Veces_Modificado','Sincronizado',
   ];
 }
 
 function recordToRow(r) {
-  const fotoruta    = r.foto    ? `Fotos\\${r._id}\\foto_referencia.jpg` : '';
-  const fotocaption = r.foto    ? (r.foto.caption || '')                 : '';
-  const croquiruta  = r.croquis ? `Fotos\\${r._id}\\croquis.jpg`        : '';
   return [
-    r.tipo_ficha || CONFIG.TIPO_FICHA, r._id, r.fecha_visita, r.codigo_vinculado || '',
+    r.tipo_ficha || CONFIG.TIPO_FICHA, r._id, r.fecha_visita,
     r.nombre, r.rut, r.telefono, r.email, r.n_grupo_familiar, r.otros_datos,
     r.region, r.provincia, r.comuna, r.sector,
     r.genero, r.pueblos_originarios, r.cual_pueblo,
-    (r.aporte_tipos || []).join(' | '), r.aporte_otro_desc, r.pct_aporte,
-    r.interes_programa, r.no_firma ? 'SÍ' : 'NO',
-    r.viv_norte, r.viv_este, r.viv_datum || 'WGS84', r.viv_huso,
+    (r.aporte_tipos||[]).join(' | '), r.aporte_otro_desc, r.pct_aporte, r.interes_programa, r.no_firma?'SÍ':'NO',
+    r.viv_norte, r.viv_este, r.viv_datum||'WGS84', r.viv_huso,
     r.tipo_fuente_agua,
-    r.cap_norte, r.cap_este, r.cap_datum || 'WGS84', r.cap_huso,
-    r.proy_norte, r.proy_este, r.proy_datum || 'WGS84', r.proy_huso,
+    r.cap_norte, r.cap_este, r.cap_datum||'WGS84', r.cap_huso,
+    r.proy_norte, r.proy_este, r.proy_datum||'WGS84', r.proy_huso,
     r.caracteristicas_fuente, r.obs_fuente,
-    r.tipo_tenencia_tierra, r.docs_tierra ? 'SÍ' : 'NO',
-    r.tipo_tenencia_agua, r.docs_agua ? 'SÍ' : 'NO', r.obs_tenencia,
+    r.tipo_tenencia_tierra, r.docs_tierra?'SÍ':'NO', r.tipo_tenencia_agua, r.docs_agua?'SÍ':'NO', r.obs_tenencia,
     r.cultivo_actual, r.cultivo_proyecto,
     r.superficie_actual, r.superficie_proyecto,
     r.metodo_actual, r.metodo_proyecto,
     r.meses_actual, r.meses_proyecto,
     r.obras_actual, r.obras_proyecto, r.obs_caudal,
-    (r.energia_tipos || []).join(' | '), r.red_electrica_disp, r.energia_desc,
-    r.indap_participa, r.indap_acreditado,
+    (r.energia_tipos||[]).join(' | '), r.red_electrica_disp, r.energia_desc,
+    r.indap_participa, r.indap_programa||'', r.indap_acreditado,
     r.inicio_actividades, r.incluye_iva,
     r.con_consultor, r.nombre_consultor,
     r.nombre_encuestador, r.cargo_encuestador, r.contacto_encuestador,
     r.observaciones_generales,
-    fotoruta, fotocaption, croquiruta,
-    r._id, r._created, r._modified, r._modified_count || 0, r._synced ? 'SÍ' : 'NO',
+    r.foto    ? `Fotos\\${r._id}\\foto_referencia.jpg` : '',
+    r.foto    ? (r.foto.caption||'') : '',
+    r.croquis ? `Fotos\\${r._id}\\croquis.jpg` : '',
+    r._id, r._created, r._modified, r._modified_count||0, r._synced?'SÍ':'NO',
   ];
 }
 
 function buildCSV(records) {
-  const rows = [csvHeaders(), ...records.map(recordToRow)].map(r => r.map(csvEscape).join(','));
-  return '\uFEFF' + rows.join('\r\n');
+  return '\uFEFF' + [csvHeaders(), ...records.map(recordToRow)].map(r => r.map(csvEscape).join(',')).join('\r\n');
 }
 function csvEscape(val) {
   const s = val == null ? '' : String(val);
-  return (s.includes(',') || s.includes('"') || s.includes('\n') || s.includes('\r'))
-    ? `"${s.replace(/"/g,'""')}"` : s;
+  return (s.includes(',') || s.includes('"') || s.includes('\n') || s.includes('\r')) ? `"${s.replace(/"/g,'""')}"` : s;
 }
 
 /* ══════════════════════════════════════════════════════════
@@ -1028,14 +943,12 @@ function downloadBlob(blob, filename) {
 }
 function exportCSV(record) {
   collectFormValues();
-  downloadBlob(new Blob([buildCSV([record])], { type: 'text/csv;charset=utf-8;' }),
-    `CNR_${record._id}_visita.csv`);
+  downloadBlob(new Blob([buildCSV([record])], { type:'text/csv;charset=utf-8;' }), `CNR_${record._id}_visita.csv`);
   showToast('CSV exportado ✓', 'success');
 }
 function exportAllCSV() {
   if (!State.records.length) { showToast('No hay fichas para exportar', 'error'); return; }
-  downloadBlob(new Blob([buildCSV(State.records)], { type: 'text/csv;charset=utf-8;' }),
-    `CNR_VisitaTerreno_Todas_${dateToISO(new Date())}.csv`);
+  downloadBlob(new Blob([buildCSV(State.records)], { type:'text/csv;charset=utf-8;' }), `CNR_VisitaTerreno_Todas_${dateToISO(new Date())}.csv`);
   showToast(`${State.records.length} fichas exportadas ✓`, 'success');
 }
 
@@ -1058,150 +971,104 @@ function requestDriveToken() {
     }).requestAccessToken({ prompt: '' });
   });
 }
-async function driveGetOrCreateFolder(token, name, parentId = null) {
+async function driveGetOrCreateFolder(token, name, parentId=null) {
   const q = `name='${name}' and mimeType='application/vnd.google-apps.folder'${parentId?` and '${parentId}' in parents`:''} and trashed=false`;
-  const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&fields=files(id)`,
-    { headers: { Authorization: `Bearer ${token}` } });
+  const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&fields=files(id)`, { headers:{ Authorization:`Bearer ${token}` } });
   const d = await res.json();
   if (d.files?.length) return d.files[0].id;
-  const body = { name, mimeType: 'application/vnd.google-apps.folder', ...(parentId && { parents:[parentId] }) };
-  const cr = await fetch('https://www.googleapis.com/drive/v3/files',
-    { method:'POST', headers:{ Authorization:`Bearer ${token}`, 'Content-Type':'application/json' }, body:JSON.stringify(body) });
+  const body = { name, mimeType:'application/vnd.google-apps.folder', ...(parentId&&{parents:[parentId]}) };
+  const cr = await fetch('https://www.googleapis.com/drive/v3/files', { method:'POST', headers:{ Authorization:`Bearer ${token}`, 'Content-Type':'application/json' }, body:JSON.stringify(body) });
   return (await cr.json()).id;
 }
 async function driveUploadFile(token, folderId, filename, blob, mimeType) {
   const q = `name='${filename}' and '${folderId}' in parents and trashed=false`;
-  const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&fields=files(id)`,
-    { headers: { Authorization: `Bearer ${token}` } });
-  const d   = await res.json();
-  const eid = d.files?.[0]?.id || null;
-  const meta = JSON.stringify({ name:filename, ...(!eid && { parents:[folderId] }) });
+  const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&fields=files(id)`, { headers:{ Authorization:`Bearer ${token}` } });
+  const d = await res.json(); const eid = d.files?.[0]?.id||null;
+  const meta = JSON.stringify({ name:filename, ...(!eid&&{parents:[folderId]}) });
   const form = new FormData();
   form.append('metadata', new Blob([meta], { type:'application/json' }));
   form.append('file', blob);
-  const url = eid
-    ? `https://www.googleapis.com/upload/drive/v3/files/${eid}?uploadType=multipart`
-    : 'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart';
-  return fetch(url, { method: eid?'PATCH':'POST', headers:{ Authorization:`Bearer ${token}` }, body:form });
+  const url = eid ? `https://www.googleapis.com/upload/drive/v3/files/${eid}?uploadType=multipart` : 'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart';
+  return fetch(url, { method:eid?'PATCH':'POST', headers:{ Authorization:`Bearer ${token}` }, body:form });
 }
-
 function dataUrlToBlob(dataUrl) {
-  const parts = dataUrl.split(',');
-  const mime  = parts[0].match(/:(.*?);/)[1];
-  const bin   = atob(parts[1]);
-  const arr   = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
-  return new Blob([arr], { type: mime });
+  const parts=dataUrl.split(','); const mime=parts[0].match(/:(.*?);/)[1];
+  const bin=atob(parts[1]); const arr=new Uint8Array(bin.length);
+  for (let i=0;i<bin.length;i++) arr[i]=bin.charCodeAt(i);
+  return new Blob([arr], { type:mime });
 }
-
 async function syncRecord(record, token) {
   const rootId    = await driveGetOrCreateFolder(token, CONFIG.DRIVE_FOLDER_NAME);
   const projectId = await driveGetOrCreateFolder(token, record._id, rootId);
-  await driveUploadFile(token, projectId, `${record._id}_visita.csv`,
-    new Blob([buildCSV([record])], { type:'text/csv;charset=utf-8;' }), 'text/csv');
+  await driveUploadFile(token, projectId, `${record._id}_visita.csv`, new Blob([buildCSV([record])], { type:'text/csv;charset=utf-8;' }), 'text/csv');
   const jdata = JSON.parse(JSON.stringify(record));
   jdata.firma_data = jdata.firma_data ? '[firma_presente]' : null;
-  if (jdata.foto?.dataUrl)    { jdata.foto    = { ...jdata.foto,    dataUrl: null, ruta: 'foto_referencia.jpg' }; }
-  if (jdata.croquis?.dataUrl) { jdata.croquis = { ...jdata.croquis, dataUrl: null, ruta: 'croquis.jpg' }; }
-  await driveUploadFile(token, projectId, `${record._id}_visita.json`,
-    new Blob([JSON.stringify(jdata, null, 2)], { type:'application/json' }), 'application/json');
-  if (record.foto?.dataUrl) {
-    await driveUploadFile(token, projectId, 'foto_referencia.jpg',
-      dataUrlToBlob(record.foto.dataUrl), 'image/jpeg');
-  }
-  if (record.croquis?.dataUrl) {
-    await driveUploadFile(token, projectId, 'croquis.jpg',
-      dataUrlToBlob(record.croquis.dataUrl), 'image/jpeg');
-  }
+  if (jdata.foto?.dataUrl)    { jdata.foto    = {...jdata.foto,    dataUrl:null, ruta:'foto_referencia.jpg'}; }
+  if (jdata.croquis?.dataUrl) { jdata.croquis = {...jdata.croquis, dataUrl:null, ruta:'croquis.jpg'}; }
+  await driveUploadFile(token, projectId, `${record._id}_visita.json`, new Blob([JSON.stringify(jdata,null,2)], { type:'application/json' }), 'application/json');
+  if (record.foto?.dataUrl)    await driveUploadFile(token, projectId, 'foto_referencia.jpg', dataUrlToBlob(record.foto.dataUrl), 'image/jpeg');
+  if (record.croquis?.dataUrl) await driveUploadFile(token, projectId, 'croquis.jpg', dataUrlToBlob(record.croquis.dataUrl), 'image/jpeg');
 }
-
 async function triggerSync() {
   if (State.isSyncing || !State.isOnline) return;
   const unsynced = State.records.filter(r => !r._synced);
   if (!unsynced.length) return;
-  State.isSyncing = true;
-  updateSyncUI('syncing');
+  State.isSyncing = true; updateSyncUI('syncing');
   try {
     const token = State.driveToken || await requestDriveToken();
     for (const record of unsynced) {
       await syncRecord(record, token);
-      record._synced   = true;
-      record._syncedAt = new Date().toISOString();
+      record._synced = true; record._syncedAt = new Date().toISOString();
       await dbPut(record);
     }
-    State.records = await dbGetAll();
-    renderRecordsList();
-    showToast(`${unsynced.length} registro(s) sincronizado(s) ✓`, 'success');
-    updateSyncUI('online');
+    State.records = await dbGetAll(); renderRecordsList();
+    showToast(`${unsynced.length} registro(s) sincronizado(s) ✓`, 'success'); updateSyncUI('online');
   } catch (err) {
-    console.error('Sync error:', err);
-    showToast('Error al sincronizar. Intente manualmente.', 'error');
-    updateSyncUI('online');
+    console.error('Sync error:', err); showToast('Error al sincronizar', 'error'); updateSyncUI('online');
     if (err.message?.includes('401')) State.driveToken = null;
-  } finally {
-    State.isSyncing = false;
-  }
+  } finally { State.isSyncing = false; }
 }
 
 /* ══════════════════════════════════════════════════════════
-   UI — LISTA DE REGISTROS
+   UI
    ══════════════════════════════════════════════════════════ */
 function renderRecordsList() {
   const container = document.getElementById('records-list');
-  const searchVal = (document.getElementById('search-input')?.value || '').toLowerCase();
+  const searchVal = (document.getElementById('search-input')?.value||'').toLowerCase();
   let filtered = State.records.filter(r =>
-    !searchVal ||
-    (r.nombre || '').toLowerCase().includes(searchVal) ||
-    (r.rut    || '').toLowerCase().includes(searchVal) ||
-    (r._id    || '').toLowerCase().includes(searchVal)
-  ).sort((a, b) => new Date(b._modified) - new Date(a._modified));
+    !searchVal || (r.nombre||'').toLowerCase().includes(searchVal) ||
+    (r.rut||'').toLowerCase().includes(searchVal) || (r._id||'').toLowerCase().includes(searchVal)
+  ).sort((a,b) => new Date(b._modified)-new Date(a._modified));
 
   const fichasLabel = document.getElementById('mis-fichas-label');
   if (fichasLabel) {
     const total = State.records.length;
-    fichasLabel.innerHTML = `Mis Fichas ${total > 0 ? `<span class="count-badge">${total}</span>` : ''}`;
+    fichasLabel.innerHTML = `Mis Fichas ${total>0?`<span class="count-badge">${total}</span>`:''}`;
   }
 
   if (!filtered.length) {
-    container.innerHTML = `<div class="empty-state">
-      <div style="font-size:2rem;">🌾</div>
-      <h3>${searchVal ? 'Sin resultados' : 'Sin fichas'}</h3>
-      <p>${searchVal ? 'Pruebe otro término' : 'Cree una ficha con "Nueva Ficha"'}</p>
-    </div>`;
+    container.innerHTML = `<div class="empty-state"><div style="font-size:2rem;">🌾</div><h3>${searchVal?'Sin resultados':'Sin fichas'}</h3><p>${searchVal?'Pruebe otro término':'Cree una ficha con "Nueva Ficha"'}</p></div>`;
     return;
   }
-
   container.innerHTML = '';
   filtered.forEach(record => {
-    const isModified = (record._modified_count || 0) > 1;
+    const isModified = (record._modified_count||0) > 1;
     const card = document.createElement('div');
-    card.className = 'record-card' + (State.currentRecord?._id === record._id ? ' active' : '');
+    card.className = 'record-card' + (State.currentRecord?._id===record._id?' active':'');
     card.innerHTML = `
-      <div class="record-card-delete-bg">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <polyline points="3 6 5 6 21 6"/>
-          <path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/>
-        </svg>
-        Eliminar
-      </div>
+      <div class="record-card-delete-bg"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/></svg>Eliminar</div>
       <div class="record-card-inner">
-        <div class="record-card-code">
-          ${escapeHtml(record._id)}
-          ${isModified ? `<span class="mod-star">✱</span>` : ''}
-        </div>
-        <div class="record-card-name">${escapeHtml(record.nombre || 'Sin nombre')}</div>
+        <div class="record-card-code">${escapeHtml(record._id)}${isModified?'<span class="mod-star">✱</span>':''}</div>
+        <div class="record-card-name">${escapeHtml(record.nombre||'Sin nombre')}</div>
         <div class="record-card-meta">
-          <span>${isoToDisplay(record.fecha_visita || '')}</span>
-          <span class="badge ${record._synced ? 'badge-synced' : 'badge-pending'}">
-            ${record._synced ? '✓ Sync' : '⏳ Local'}
-          </span>
-          ${record.rut ? `<span style="font-size:.72rem;color:var(--gray-500)">RUT: ${escapeHtml(record.rut)}</span>` : ''}
+          <span>${isoToDisplay(record.fecha_visita||'')}</span>
+          <span class="badge ${record._synced?'badge-synced':'badge-pending'}">${record._synced?'✓ Sync':'⏳ Local'}</span>
+          ${record.rut?`<span style="font-size:.72rem;color:var(--gray-500)">RUT: ${escapeHtml(record.rut)}</span>`:''}
         </div>
       </div>`;
     card.querySelector('.record-card-inner').addEventListener('click', () => {
       if (card.classList.contains('swiping-left')) { card.classList.remove('swiping-left'); return; }
-      loadRecordToForm(record);
-      renderRecordsList();
+      loadRecordToForm(record); renderRecordsList();
     });
     bindSwipeDelete(card, record);
     container.appendChild(card);
@@ -1209,74 +1076,52 @@ function renderRecordsList() {
 }
 
 function bindSwipeDelete(card, record) {
-  let startX = 0, startY = 0, isDragging = false, longPressTimer = null;
+  let startX=0, startY=0, isDragging=false, longPressTimer=null;
   card.addEventListener('touchstart', (e) => {
-    startX = e.touches[0].clientX; startY = e.touches[0].clientY; isDragging = false;
-    longPressTimer = setTimeout(() => { card.classList.add('press-long'); showDeleteConfirm(record); }, 600);
-  }, { passive: true });
+    startX=e.touches[0].clientX; startY=e.touches[0].clientY; isDragging=false;
+    longPressTimer=setTimeout(()=>{ card.classList.add('press-long'); showDeleteConfirm(record); }, 600);
+  }, { passive:true });
   card.addEventListener('touchmove', (e) => {
     clearTimeout(longPressTimer);
-    const dx = e.touches[0].clientX - startX, dy = e.touches[0].clientY - startY;
-    if (Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > 10) {
-      isDragging = true;
-      if (dx < -20) card.classList.add('swiping-left');
-      else if (dx > 20) card.classList.remove('swiping-left');
-    }
-  }, { passive: true });
+    const dx=e.touches[0].clientX-startX, dy=e.touches[0].clientY-startY;
+    if (Math.abs(dx)>Math.abs(dy)&&Math.abs(dx)>10) { isDragging=true; if (dx<-20) card.classList.add('swiping-left'); else if (dx>20) card.classList.remove('swiping-left'); }
+  }, { passive:true });
   card.addEventListener('touchend', (e) => {
     clearTimeout(longPressTimer); card.classList.remove('press-long');
     if (!isDragging) return;
-    if (e.changedTouches[0].clientX - startX < -60) {
+    if (e.changedTouches[0].clientX-startX < -60) {
       card.classList.add('swiping-left');
-      card.querySelector('.record-card-delete-bg').addEventListener('click', () => showDeleteConfirm(record), { once: true });
+      card.querySelector('.record-card-delete-bg').addEventListener('click', ()=>showDeleteConfirm(record), { once:true });
     } else { card.classList.remove('swiping-left'); }
-  }, { passive: true });
+  }, { passive:true });
 }
 
-function showPostSaveModal()  { document.getElementById('modal-post-save')?.classList.add('open'); }
-function hidePostSaveModal()  { document.getElementById('modal-post-save')?.classList.remove('open'); }
+function showPostSaveModal() { document.getElementById('modal-post-save')?.classList.add('open'); }
+function hidePostSaveModal() { document.getElementById('modal-post-save')?.classList.remove('open'); }
 
 function updateSyncUI(state) {
-  const cfg = {
-    online:  { dot:'online',  text:'En línea',       btn:'Sincronizar'    },
-    offline: { dot:'offline', text:'Sin conexión',   btn:'Sin conexión'   },
-    syncing: { dot:'syncing', text:'Sincronizando…', btn:'Sincronizando…' },
-  }[state];
+  const cfg={ online:{dot:'online',text:'En línea',btn:'Sincronizar'}, offline:{dot:'offline',text:'Sin conexión',btn:'Sin conexión'}, syncing:{dot:'syncing',text:'Sincronizando…',btn:'Sincronizando…'} }[state];
   if (!cfg) return;
-  const dot  = document.getElementById('status-dot');
-  const text = document.getElementById('status-text');
-  const btn  = document.getElementById('sync-btn');
-  if (dot)  dot.className    = `status-dot ${cfg.dot}`;
-  if (text) text.textContent = cfg.text;
-  if (btn)  {
-    btn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-      style="${state==='syncing'?'animation:spin 1s linear infinite':''}">
-      <path d="M23 4v6h-6M1 20v-6h6"/>
-      <path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/>
-    </svg>${cfg.btn}`;
-    btn.disabled = state === 'syncing' || state === 'offline';
-  }
+  const dot=document.getElementById('status-dot'), text=document.getElementById('status-text'), btn=document.getElementById('sync-btn');
+  if (dot)  dot.className=`status-dot ${cfg.dot}`;
+  if (text) text.textContent=cfg.text;
+  if (btn)  { btn.innerHTML=`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="${state==='syncing'?'animation:spin 1s linear infinite':''}"><path d="M23 4v6h-6M1 20v-6h6"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>${cfg.btn}`; btn.disabled=state==='syncing'||state==='offline'; }
 }
 
-function showToast(msg, type = 'info') {
-  const c = document.getElementById('toast-container');
-  if (!c) return;
-  const t = document.createElement('div');
-  t.className   = `toast ${type}`;
-  t.textContent = `${{ success:'✓', error:'✕', info:'ℹ' }[type] || ''} ${msg}`;
-  c.appendChild(t);
-  setTimeout(() => t.remove(), 3500);
+function showToast(msg, type='info') {
+  const c=document.getElementById('toast-container'); if (!c) return;
+  const t=document.createElement('div'); t.className=`toast ${type}`;
+  t.textContent=`${{success:'✓',error:'✕',info:'ℹ'}[type]||''} ${msg}`;
+  c.appendChild(t); setTimeout(()=>t.remove(), 3500);
 }
 function escapeHtml(str) {
-  return String(str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  return String(str||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
 /* ══════════════════════════════════════════════════════════
    VINCULAR EVENTOS
    ══════════════════════════════════════════════════════════ */
 function bindEvents() {
-
-  // Nueva ficha
   document.getElementById('new-record-btn')?.addEventListener('click', () => {
     State.currentRecord = createEmptyRecord();
     State.records.push(State.currentRecord);
@@ -1284,14 +1129,11 @@ function bindEvents() {
     renderRecordsList();
   });
 
-  // Guardar
   document.getElementById('save-btn')?.addEventListener('click', saveCurrentRecord);
-
-  // Exportar
-  document.getElementById('export-csv-btn')?.addEventListener('click', () => {
-    if (State.currentRecord) exportCSV(State.currentRecord);
-  });
+  document.getElementById('export-csv-btn')?.addEventListener('click', () => { if (State.currentRecord) exportCSV(State.currentRecord); });
   document.getElementById('export-all-csv-btn')?.addEventListener('click', exportAllCSV);
+  document.getElementById('sync-btn')?.addEventListener('click', triggerSync);
+  document.getElementById('search-input')?.addEventListener('input', renderRecordsList);
 
   // Descartar / Cerrar
   document.getElementById('discard-btn')?.addEventListener('click', () => {
@@ -1299,49 +1141,37 @@ function bindEvents() {
     if (State.currentRecord._modified_count === 0) {
       document.getElementById('modal-confirm-discard')?.classList.add('open');
     } else {
-      State.currentRecord = null; State.firmaData = null; State.foto = null; State.croquis = null;
-      document.getElementById('no-record-msg').style.display = 'flex';
-      document.getElementById('form-wrapper').style.display  = 'none';
-      document.getElementById('action-bar').style.display    = 'none';
-      document.querySelectorAll('.record-card').forEach(c => c.classList.remove('active'));
+      State.currentRecord=null; State.firmaData=null; State.foto=null; State.croquis=null;
+      document.getElementById('no-record-msg').style.display='flex';
+      document.getElementById('form-wrapper').style.display='none';
+      document.getElementById('action-bar').style.display='none';
+      document.querySelectorAll('.record-card').forEach(c=>c.classList.remove('active'));
     }
   });
-  document.getElementById('modal-discard-cancel')?.addEventListener('click', () => {
-    document.getElementById('modal-confirm-discard')?.classList.remove('open');
-  });
+  document.getElementById('modal-discard-cancel')?.addEventListener('click',  () => document.getElementById('modal-confirm-discard')?.classList.remove('open'));
   document.getElementById('modal-discard-confirm')?.addEventListener('click', async () => {
     document.getElementById('modal-confirm-discard')?.classList.remove('open');
     if (!State.currentRecord) return;
     await dbDelete(State.currentRecord._id);
-    State.records = State.records.filter(r => r._id !== State.currentRecord._id);
-    State.currentRecord = null; State.firmaData = null; State.foto = null; State.croquis = null;
-    document.getElementById('no-record-msg').style.display = 'flex';
-    document.getElementById('form-wrapper').style.display  = 'none';
-    document.getElementById('action-bar').style.display    = 'none';
-    renderRecordsList();
-    showToast('Ficha descartada', 'info');
+    State.records=State.records.filter(r=>r._id!==State.currentRecord._id);
+    State.currentRecord=null; State.firmaData=null; State.foto=null; State.croquis=null;
+    document.getElementById('no-record-msg').style.display='flex';
+    document.getElementById('form-wrapper').style.display='none';
+    document.getElementById('action-bar').style.display='none';
+    renderRecordsList(); showToast('Ficha descartada', 'info');
   });
 
   // Eliminar
-  document.getElementById('delete-btn')?.addEventListener('click', () => {
-    if (!State.currentRecord) return;
-    showDeleteConfirm(State.currentRecord);
-  });
+  document.getElementById('delete-btn')?.addEventListener('click', () => { if (State.currentRecord) showDeleteConfirm(State.currentRecord); });
   document.getElementById('modal-delete-cancel')?.addEventListener('click', () => {
     document.getElementById('modal-confirm-delete')?.classList.remove('open');
-    _pendingDeleteRecord = null;
-    document.querySelectorAll('.record-card.swiping-left').forEach(c => c.classList.remove('swiping-left'));
+    _pendingDeleteRecord=null;
+    document.querySelectorAll('.record-card.swiping-left').forEach(c=>c.classList.remove('swiping-left'));
   });
   document.getElementById('modal-delete-confirm')?.addEventListener('click', async () => {
     document.getElementById('modal-confirm-delete')?.classList.remove('open');
-    if (_pendingDeleteRecord) { await deleteRecord(_pendingDeleteRecord); _pendingDeleteRecord = null; }
+    if (_pendingDeleteRecord) { await deleteRecord(_pendingDeleteRecord); _pendingDeleteRecord=null; }
   });
-
-  // Sincronizar
-  document.getElementById('sync-btn')?.addEventListener('click', triggerSync);
-
-  // Búsqueda
-  document.getElementById('search-input')?.addEventListener('input', renderRecordsList);
 
   // Firma
   document.getElementById('firma-clear-btn')?.addEventListener('click', clearFirma);
@@ -1349,113 +1179,79 @@ function bindEvents() {
 
   // Foto
   document.getElementById('foto-camera-btn')?.addEventListener('click', () => {
-    if (!State.currentRecord) { showToast('Primero cree o guarde una ficha', 'error'); return; }
+    if (!State.currentRecord) { showToast('Primero cree o guarde una ficha','error'); return; }
     captureFoto(true);
   });
   document.getElementById('foto-gallery-btn')?.addEventListener('click', () => {
-    if (!State.currentRecord) { showToast('Primero cree o guarde una ficha', 'error'); return; }
+    if (!State.currentRecord) { showToast('Primero cree o guarde una ficha','error'); return; }
     captureFoto(false);
   });
   document.getElementById('foto-remove-btn')?.addEventListener('click', removeFoto);
   document.getElementById('f_foto_caption')?.addEventListener('input', (e) => {
-    if (State.foto) State.foto.caption = e.target.value;
-    if (State.currentRecord?.foto) State.currentRecord.foto.caption = e.target.value;
+    if (State.foto) State.foto.caption=e.target.value;
+    if (State.currentRecord?.foto) State.currentRecord.foto.caption=e.target.value;
   });
 
-  // GPS / Maps (todos los targets)
-  document.querySelectorAll('.btn-gps').forEach(btn => {
-    btn.addEventListener('click', () => getGPS(btn.dataset.coordsTarget));
-  });
-  document.querySelectorAll('.btn-maps').forEach(btn => {
-    btn.addEventListener('click', () => pasteFromMaps(btn.dataset.coordsTarget));
-  });
+  // GPS / Maps
+  document.querySelectorAll('.btn-gps').forEach(btn  => btn.addEventListener('click', () => getGPS(btn.dataset.coordsTarget)));
+  document.querySelectorAll('.btn-maps').forEach(btn => btn.addEventListener('click', () => pasteFromMaps(btn.dataset.coordsTarget)));
 
-  // ── Croquis ──────────────────────────────────────────
+  // Croquis
   document.getElementById('croquis-import-btn')?.addEventListener('click', () => {
-    if (!State.currentRecord) { showToast('Primero cree o guarde una ficha', 'error'); return; }
-    const input = document.createElement('input');
-    input.type = 'file'; input.accept = 'image/*';
-    input.onchange = (e) => { if (e.target.files[0]) Croquis.loadBackground(e.target.files[0]); };
+    if (!State.currentRecord) { showToast('Primero cree o guarde una ficha','error'); return; }
+    const input=document.createElement('input'); input.type='file'; input.accept='image/*';
+    input.onchange=(e)=>{ if (e.target.files[0]) Croquis.loadBackground(e.target.files[0]); };
     input.click();
   });
-
-  document.querySelectorAll('.croquis-tool-btn').forEach(btn => {
-    btn.addEventListener('click', () => Croquis.setTool(btn.dataset.tool));
-  });
-
-  document.querySelectorAll('.croquis-color-btn').forEach(btn => {
-    btn.addEventListener('click', () => Croquis.setColor(btn.dataset.color));
-  });
-
-  document.querySelectorAll('.croquis-width-btn').forEach(btn => {
-    btn.addEventListener('click', () => Croquis.setLineWidth(Number(btn.dataset.width)));
-  });
-
-  document.getElementById('croquis-undo-btn')?.addEventListener('click',         () => Croquis.undo());
+  document.querySelectorAll('.croquis-tool-btn').forEach(btn  => btn.addEventListener('click', () => Croquis.setTool(btn.dataset.tool)));
+  document.querySelectorAll('.croquis-color-btn').forEach(btn => btn.addEventListener('click', () => Croquis.setColor(btn.dataset.color)));
+  document.querySelectorAll('.croquis-width-btn').forEach(btn => btn.addEventListener('click', () => Croquis.setLineWidth(Number(btn.dataset.width))));
+  document.getElementById('croquis-undo-btn')?.addEventListener('click',          () => Croquis.undo());
   document.getElementById('croquis-clear-drawing-btn')?.addEventListener('click', () => Croquis.clearDrawing());
-  document.getElementById('croquis-clear-all-btn')?.addEventListener('click',    () => {
-    Croquis.clearAll();
-    State.croquis = null;
-    if (State.currentRecord) State.currentRecord.croquis = null;
+  document.getElementById('croquis-clear-all-btn')?.addEventListener('click', () => {
+    Croquis.clearAll(); State.croquis=null;
+    if (State.currentRecord) State.currentRecord.croquis=null;
+    const ind=document.getElementById('croquis-saved-indicator'); if (ind) ind.style.display='none';
   });
   document.getElementById('croquis-save-btn')?.addEventListener('click', saveCroquis);
 
   // Modales post-guardado
   document.getElementById('modal-nueva-ficha')?.addEventListener('click', () => {
     hidePostSaveModal();
-    State.currentRecord = createEmptyRecord();
-    State.records.push(State.currentRecord);
-    loadRecordToForm(State.currentRecord);
-    renderRecordsList();
+    State.currentRecord=createEmptyRecord(); State.records.push(State.currentRecord);
+    loadRecordToForm(State.currentRecord); renderRecordsList();
   });
   document.getElementById('modal-ver-registros')?.addEventListener('click', () => {
     hidePostSaveModal();
-    if (window.innerWidth <= 900) {
+    if (window.innerWidth<=900) {
       document.getElementById('records-sidebar')?.classList.add('mobile-visible');
       document.getElementById('sidebar-overlay')?.classList.add('visible');
-      document.body.style.overflow = 'hidden';
+      document.body.style.overflow='hidden';
     }
   });
   document.getElementById('modal-continuar')?.addEventListener('click', hidePostSaveModal);
 
-  // Modales advertencia RUT
-  document.getElementById('modal-rut-cancel')?.addEventListener('click', () => {
-    document.getElementById('modal-warn-rut')?.classList.remove('open');
-    document.getElementById('f_rut')?.focus();
-  });
+  // RUT warning
+  document.getElementById('modal-rut-cancel')?.addEventListener('click', () => { document.getElementById('modal-warn-rut')?.classList.remove('open'); document.getElementById('f_rut')?.focus(); });
   document.getElementById('modal-rut-confirm')?.addEventListener('click', async () => {
     document.getElementById('modal-warn-rut')?.classList.remove('open');
-    const r = State.currentRecord;
+    const r=State.currentRecord;
     if (!r.firma_data && !r.no_firma) { document.getElementById('modal-warn-firma')?.classList.add('open'); return; }
     await _doSave();
   });
 
-  // Modal advertencia firma
-  document.getElementById('modal-firma-cancel')?.addEventListener('click', () => {
-    document.getElementById('modal-warn-firma')?.classList.remove('open');
-    document.getElementById('firma-canvas')?.scrollIntoView({ behavior:'smooth' });
-  });
-  document.getElementById('modal-firma-confirm')?.addEventListener('click', async () => {
-    document.getElementById('modal-warn-firma')?.classList.remove('open');
-    await _doSave();
-  });
+  // Firma warning
+  document.getElementById('modal-firma-cancel')?.addEventListener('click',  () => { document.getElementById('modal-warn-firma')?.classList.remove('open'); document.getElementById('firma-canvas')?.scrollIntoView({behavior:'smooth'}); });
+  document.getElementById('modal-firma-confirm')?.addEventListener('click', async () => { document.getElementById('modal-warn-firma')?.classList.remove('open'); await _doSave(); });
 
-  // Banner instalación
-  window.addEventListener('beforeinstallprompt', (e) => {
-    e.preventDefault(); State.installPrompt = e;
-    document.getElementById('install-banner')?.classList.add('visible');
-  });
+  // Banner
+  window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); State.installPrompt=e; document.getElementById('install-banner')?.classList.add('visible'); });
   document.getElementById('install-btn')?.addEventListener('click', async () => {
-    if (State.installPrompt) {
-      State.installPrompt.prompt();
-      const r = await State.installPrompt.userChoice;
-      if (r.outcome === 'accepted') document.getElementById('install-banner')?.classList.remove('visible');
-    }
+    if (State.installPrompt) { State.installPrompt.prompt(); const r=await State.installPrompt.userChoice; if (r.outcome==='accepted') document.getElementById('install-banner')?.classList.remove('visible'); }
   });
 
-  // Online/Offline
-  window.addEventListener('online',  () => { State.isOnline = true;  updateSyncUI('online');  triggerSync(); });
-  window.addEventListener('offline', () => { State.isOnline = false; updateSyncUI('offline'); });
+  window.addEventListener('online',  () => { State.isOnline=true;  updateSyncUI('online');  triggerSync(); });
+  window.addEventListener('offline', () => { State.isOnline=false; updateSyncUI('offline'); });
 }
 
 /* ══════════════════════════════════════════════════════════
@@ -1469,7 +1265,7 @@ async function init() {
   Croquis.init();
   Croquis.setTool('pen');
   Croquis.setColor('#000000');
-  Croquis.setLineWidth(3);
+  Croquis.setLineWidth(4);
   bindEvents();
   updateSyncUI(State.isOnline ? 'online' : 'offline');
   renderRecordsList();

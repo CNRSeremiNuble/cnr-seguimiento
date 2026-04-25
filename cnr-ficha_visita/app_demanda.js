@@ -408,6 +408,12 @@ function loadRecordToForm(record) {
 
   document.getElementById('no-record-msg').style.display = 'none';
   document.getElementById('form-wrapper').style.display  = 'flex';
+
+   // Actualizar etiqueta del botón descartar/cerrar
+  const discardLabel = document.getElementById('discard-btn-label');
+  if (discardLabel) {
+    discardLabel.textContent = (record._modified_count === 0) ? 'Descartar' : 'Cerrar';
+  }
 }
 
 /* ══════════════════════════════════════════════════════════
@@ -1247,6 +1253,44 @@ function bindEvents() {
   });
   document.getElementById('export-all-csv-btn')?.addEventListener('click', exportAllCSV);
 
+   // Botón Descartar / Cerrar
+  document.getElementById('discard-btn')?.addEventListener('click', () => {
+    if (!State.currentRecord) return;
+    const isNew = State.currentRecord._modified_count === 0;
+    if (isNew) {
+      document.getElementById('modal-confirm-discard')?.classList.add('open');
+    } else {
+      State.currentRecord = null;
+      State.firmaData     = null;
+      State.foto          = null;
+      document.getElementById('no-record-msg').style.display = 'flex';
+      document.getElementById('form-wrapper').style.display  = 'none';
+      document.getElementById('action-bar').style.display    = 'none';
+      document.querySelectorAll('.record-card').forEach(c => c.classList.remove('active'));
+    }
+  });
+
+  // Modal descartar — Volver
+  document.getElementById('modal-discard-cancel')?.addEventListener('click', () => {
+    document.getElementById('modal-confirm-discard')?.classList.remove('open');
+  });
+
+  // Modal descartar — Confirmar
+  document.getElementById('modal-discard-confirm')?.addEventListener('click', async () => {
+    document.getElementById('modal-confirm-discard')?.classList.remove('open');
+    if (!State.currentRecord) return;
+    await dbDelete(State.currentRecord._id);
+    State.records       = State.records.filter(r => r._id !== State.currentRecord._id);
+    State.currentRecord = null;
+    State.firmaData     = null;
+    State.foto          = null;
+    document.getElementById('no-record-msg').style.display = 'flex';
+    document.getElementById('form-wrapper').style.display  = 'none';
+    document.getElementById('action-bar').style.display    = 'none';
+    renderRecordsList();
+    showToast('Ficha descartada', 'info');
+  });
+   
   // Eliminar
   document.getElementById('delete-btn')?.addEventListener('click', () => {
     if (!State.currentRecord) return;

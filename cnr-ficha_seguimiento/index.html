@@ -965,18 +965,22 @@
   }
 
   // Calcular automáticamente al cambiar fechas (solo si el campo está vacío)
-  document.getElementById('f_fecha_recepcion')?.addEventListener('change', () => {
+  // Escucha tanto 'input' (escritura manual) como el calendario oculto
+  function _intentarCalculo() {
     const tiempoEl = document.getElementById('f_tiempo_funcionamiento');
     if (tiempoEl && (tiempoEl.value === '' || tiempoEl.value === '0')) {
       calcularTiempoFuncionamiento();
     }
-  });
-  document.getElementById('f_fecha_visita')?.addEventListener('change', () => {
-    const tiempoEl = document.getElementById('f_tiempo_funcionamiento');
-    if (tiempoEl && (tiempoEl.value === '' || tiempoEl.value === '0')) {
-      calcularTiempoFuncionamiento();
-    }
-  });
+  }
+
+  document.getElementById('f_fecha_recepcion')?.addEventListener('input',  _intentarCalculo);
+  document.getElementById('f_fecha_recepcion')?.addEventListener('change', _intentarCalculo);
+  document.getElementById('f_fecha_visita')?.addEventListener('input',     _intentarCalculo);
+  document.getElementById('f_fecha_visita')?.addEventListener('change',    _intentarCalculo);
+
+  // El calendario oculto actualiza el campo visible — capturar ese cambio también
+  document.getElementById('f_fecha_recepcion_cal')?.addEventListener('change', _intentarCalculo);
+  document.getElementById('f_fecha_visita_cal')?.addEventListener('change',    _intentarCalculo);
 
   // Botón recalcular — siempre recalcula al presionar
   document.getElementById('recalcular-tiempo-btn')?.addEventListener('click', () => {

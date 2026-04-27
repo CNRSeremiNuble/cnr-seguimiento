@@ -1,7 +1,8 @@
 /**
  * app_demanda.js — Lógica principal Ficha Visita Terreno CNR
- * v3.0 — Fix sidebar, email, firma modo oscuro, INDAP programa,
- *         consultor siempre visible, crop 4:3 / 3:4, foto más alta
+ * v3.1 — Nombres de archivo de exportación normalizados a Snake_Case
+ *         Formato: CNR_VisitaTerreno_[ID]_AAAA-MM-DD.csv/.json
+ *         (Headers CSV ya estaban en Snake_Case desde v3.0)
  */
 
 'use strict';
@@ -423,8 +424,10 @@ async function deleteRecord(record) {
 async function markDeletedInDrive(token, record) {
   const rootId    = await driveGetOrCreateFolder(token, CONFIG.DRIVE_FOLDER_NAME);
   const projectId = await driveGetOrCreateFolder(token, record._id, rootId);
+  const fecha     = dateToISO(new Date());
   const csv = buildCSV([Object.assign({}, record, { _deleted: true, _deletedAt: new Date().toISOString() })]);
-  await driveUploadFile(token, projectId, `ELIMINADO_${record._id}_visita.csv`,
+  await driveUploadFile(token, projectId,
+    `CNR_VisitaTerreno_${record._id}_ELIMINADO_${fecha}.csv`,
     new Blob([csv], { type:'text/csv;charset=utf-8;' }), 'text/csv');
 }
 
@@ -943,12 +946,20 @@ function downloadBlob(blob, filename) {
 }
 function exportCSV(record) {
   collectFormValues();
-  downloadBlob(new Blob([buildCSV([record])], { type:'text/csv;charset=utf-8;' }), `CNR_${record._id}_visita.csv`);
+  const fecha = dateToISO(new Date());
+  downloadBlob(
+    new Blob([buildCSV([record])], { type:'text/csv;charset=utf-8;' }),
+    `CNR_VisitaTerreno_${record._id}_${fecha}.csv`
+  );
   showToast('CSV exportado ✓', 'success');
 }
 function exportAllCSV() {
   if (!State.records.length) { showToast('No hay fichas para exportar', 'error'); return; }
-  downloadBlob(new Blob([buildCSV(State.records)], { type:'text/csv;charset=utf-8;' }), `CNR_VisitaTerreno_Todas_${dateToISO(new Date())}.csv`);
+  const fecha = dateToISO(new Date());
+  downloadBlob(
+    new Blob([buildCSV(State.records)], { type:'text/csv;charset=utf-8;' }),
+    `CNR_VisitaTerreno_Todas_${fecha}.csv`
+  );
   showToast(`${State.records.length} fichas exportadas ✓`, 'success');
 }
 
@@ -1000,12 +1011,17 @@ function dataUrlToBlob(dataUrl) {
 async function syncRecord(record, token) {
   const rootId    = await driveGetOrCreateFolder(token, CONFIG.DRIVE_FOLDER_NAME);
   const projectId = await driveGetOrCreateFolder(token, record._id, rootId);
-  await driveUploadFile(token, projectId, `${record._id}_visita.csv`, new Blob([buildCSV([record])], { type:'text/csv;charset=utf-8;' }), 'text/csv');
+  const fecha     = dateToISO(new Date());
+  await driveUploadFile(token, projectId,
+    `CNR_VisitaTerreno_${record._id}_${fecha}.csv`,
+    new Blob([buildCSV([record])], { type:'text/csv;charset=utf-8;' }), 'text/csv');
   const jdata = JSON.parse(JSON.stringify(record));
   jdata.firma_data = jdata.firma_data ? '[firma_presente]' : null;
   if (jdata.foto?.dataUrl)    { jdata.foto    = {...jdata.foto,    dataUrl:null, ruta:'foto_referencia.jpg'}; }
   if (jdata.croquis?.dataUrl) { jdata.croquis = {...jdata.croquis, dataUrl:null, ruta:'croquis.jpg'}; }
-  await driveUploadFile(token, projectId, `${record._id}_visita.json`, new Blob([JSON.stringify(jdata,null,2)], { type:'application/json' }), 'application/json');
+  await driveUploadFile(token, projectId,
+    `CNR_VisitaTerreno_${record._id}_${fecha}.json`,
+    new Blob([JSON.stringify(jdata,null,2)], { type:'application/json' }), 'application/json');
   if (record.foto?.dataUrl)    await driveUploadFile(token, projectId, 'foto_referencia.jpg', dataUrlToBlob(record.foto.dataUrl), 'image/jpeg');
   if (record.croquis?.dataUrl) await driveUploadFile(token, projectId, 'croquis.jpg', dataUrlToBlob(record.croquis.dataUrl), 'image/jpeg');
 }

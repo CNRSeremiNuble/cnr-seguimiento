@@ -1,7 +1,8 @@
 /**
  * app.js — Lógica principal CNR Seguimiento PWA
  * IndexedDB · Exportación JSON/CSV · Google Drive OAuth2
- * v2.0 — Fechas ISO, rutas relativas fotos, exportar todos, indicador modificación
+ * v2.1 — Headers CSV estandarizados a Snake_Case_Capitalizado
+ *         Nombres de archivo de exportación normalizados
  */
 
 'use strict';
@@ -13,7 +14,7 @@ const CONFIG = {
   GOOGLE_CLIENT_ID:  '353831203919-9uf4jmk8he5df4dvvpdoq0dle1jmeiju.apps.googleusercontent.com',
   DRIVE_FOLDER_NAME: 'CNR_Seguimiento',
   DB_NAME:           'cnr_seguimiento',
-  DB_VERSION:        2,
+  DB_VERSION:        1,
   STORE_NAME:        'registros',
   TIPO_FICHA:        'Seguimiento CNR',
 };
@@ -151,7 +152,6 @@ async function saveCurrentRecord() {
   renderRecordsList();
   if (State.isOnline) triggerSync();
 
-  // Mostrar modal post-guardado solo en primera vez
   if (isFirstSave) {
     showPostSaveModal();
   } else {
@@ -242,8 +242,8 @@ function loadRecordToForm(record) {
   if (cumpleInput) { cumpleInput.checked = true; updateCumpleVisual(record.cumple_objetivo); }
   else document.querySelectorAll('.cumple-option').forEach(o => o.classList.remove('selected'));
 
-  renderDynamicList('antecedentes-list',   record.antecedentes || ['']);
-  renderDynamicList('obs-generales-list',  record.observaciones_generales || ['']);
+  renderDynamicList('antecedentes-list',  record.antecedentes || ['']);
+  renderDynamicList('obs-generales-list', record.observaciones_generales || ['']);
   renderPhotos();
 
   const idDisplay = document.getElementById('record-id-display');
@@ -257,12 +257,11 @@ function loadRecordToForm(record) {
   }
 
   document.getElementById('no-record-msg').style.display = 'none';
-   // Actualizar etiqueta del botón descartar/cerrar
   const discardLabel = document.getElementById('discard-btn-label');
   if (discardLabel) {
     discardLabel.textContent = (record._modified_count === 0) ? 'Descartar' : 'Cerrar';
   }
-  document.getElementById('form-wrapper').style.display  = 'flex';
+  document.getElementById('form-wrapper').style.display = 'flex';
 }
 
 /* ══════════════════════════════════════════════════════════
@@ -350,26 +349,28 @@ function latLonToUTM(lat, lon) {
 
 /* ══════════════════════════════════════════════════════════
    CONSTRUCCIÓN CSV
+   Headers estandarizados: Snake_Case_Capitalizado
+   Sin tildes, sin caracteres especiales, sin espacios
    ══════════════════════════════════════════════════════════ */
 function csvHeaders() {
   return [
-    'Tipo Ficha',
-    'Código Proyecto','N° Concurso','Fecha Recepción Técnica',
-    'Beneficiario','Predio','Rol(es) de Avalúo',
-    'Comuna','Provincia','Región',
-    'UTM Este','UTM Norte','UTM Datum','UTM Huso',
-    'Fecha de Pago','N° Bono','Fecha de Visita',
-    'Cultivo Inicial','Cultivo Actual',
-    'Antecedentes','Observaciones Técnicas',
-    'Tiempo Funcionamiento Obra (años)',
-    'Observaciones Generales','Cumple con el Objetivo',
-    'Ruta Foto 1','Pie de Foto 1',
-    'Ruta Foto 2','Pie de Foto 2',
-    'Ruta Foto 3','Pie de Foto 3',
-    'Ruta Foto 4','Pie de Foto 4',
-    'Ruta Foto 5','Pie de Foto 5',
-    'ID Registro','Fecha Creación','Fecha Modificación',
-    'Veces Modificado','Sincronizado',
+    'Tipo_Ficha',
+    'Codigo_Proyecto', 'N_Concurso', 'Fecha_Recepcion_Tecnica',
+    'Beneficiario', 'Predio', 'Roles_Avaluo',
+    'Comuna', 'Provincia', 'Region',
+    'UTM_Este', 'UTM_Norte', 'UTM_Datum', 'UTM_Huso',
+    'Fecha_Pago', 'N_Bono', 'Fecha_Visita',
+    'Cultivo_Inicial', 'Cultivo_Actual',
+    'Antecedentes', 'Observaciones_Tecnicas',
+    'Tiempo_Funcionamiento_Obra',
+    'Observaciones_Generales', 'Cumple_Objetivo',
+    'Ruta_Foto_1', 'Pie_Foto_1',
+    'Ruta_Foto_2', 'Pie_Foto_2',
+    'Ruta_Foto_3', 'Pie_Foto_3',
+    'Ruta_Foto_4', 'Pie_Foto_4',
+    'Ruta_Foto_5', 'Pie_Foto_5',
+    'ID_Registro', 'Fecha_Creacion', 'Fecha_Modificacion',
+    'Veces_Modificado', 'Sincronizado',
   ];
 }
 
@@ -414,6 +415,8 @@ function csvEscape(val) {
 
 /* ══════════════════════════════════════════════════════════
    EXPORTACIÓN
+   Nomenclatura: CNR_Seguimiento_[codigo]_AAAA-MM-DD.csv
+                 CNR_Seguimiento_Todos_AAAA-MM-DD.csv
    ══════════════════════════════════════════════════════════ */
 function downloadBlob(blob, filename) {
   const url = URL.createObjectURL(blob);
@@ -423,35 +426,41 @@ function downloadBlob(blob, filename) {
 
 function exportCSV(record) {
   collectFormValues();
+  const codigo = record.codigo_proyecto || record._id.split('-')[0];
+  const fecha  = dateToISO(new Date());
   downloadBlob(
     new Blob([buildCSV([record])], { type: 'text/csv;charset=utf-8;' }),
-    `CNR_${record.codigo_proyecto || record._id.split('-')[0]}_seguimiento.csv`
+    `CNR_Seguimiento_${codigo}_${fecha}.csv`
   );
   showToast('CSV exportado ✓', 'success');
 }
 
 function exportAllCSV() {
   if (!State.records.length) { showToast('No hay registros para exportar', 'error'); return; }
+  const fecha = dateToISO(new Date());
   downloadBlob(
     new Blob([buildCSV(State.records)], { type: 'text/csv;charset=utf-8;' }),
-    `CNR_Seguimiento_Todos_${dateToISO(new Date())}.csv`
+    `CNR_Seguimiento_Todos_${fecha}.csv`
   );
   showToast(`${State.records.length} registros exportados ✓`, 'success');
 }
 
 function exportJSON(record) {
   collectFormValues();
-  const data  = JSON.parse(JSON.stringify(record));
+  const data   = JSON.parse(JSON.stringify(record));
   const codigo = record.codigo_proyecto || record._id.split('-')[0];
-  data.fotos  = (record.fotos||[]).map((f,i) => ({
-    numero: i+1,
-    filename: CameraModule.getFilenameForDrive(i),
+  const fecha  = dateToISO(new Date());
+  data.fotos   = (record.fotos||[]).map((f,i) => ({
+    numero:      i+1,
+    filename:    CameraModule.getFilenameForDrive(i),
     ruta_access: `Fotos\\${codigo}\\${CameraModule.getFilenameForDrive(i)}`,
-    caption: f.caption||'', timestamp: f.timestamp, sizeKB: f.sizeKB,
+    caption:     f.caption||'',
+    timestamp:   f.timestamp,
+    sizeKB:      f.sizeKB,
   }));
   downloadBlob(
     new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }),
-    `CNR_${codigo}_seguimiento.json`
+    `CNR_Seguimiento_${codigo}_${fecha}.json`
   );
   showToast('JSON exportado ✓', 'success');
 }
@@ -508,23 +517,27 @@ async function driveUploadFile(token, folderId, filename, blob, mimeType) {
 
 async function syncRecord(record, token) {
   const rootId    = await driveGetOrCreateFolder(token, CONFIG.DRIVE_FOLDER_NAME);
-  const projectId = await driveGetOrCreateFolder(token, record.codigo_proyecto||'sin_codigo', rootId);
   const codigo    = record.codigo_proyecto || record._id.split('-')[0];
+  const projectId = await driveGetOrCreateFolder(token, codigo, rootId);
+  const fecha     = dateToISO(new Date());
 
-  await driveUploadFile(token, projectId, `${codigo}_seguimiento.csv`,
+  await driveUploadFile(token, projectId,
+    `CNR_Seguimiento_${codigo}_${fecha}.csv`,
     new Blob([buildCSV([record])], { type:'text/csv;charset=utf-8;' }), 'text/csv');
 
-  const jdata = JSON.parse(JSON.stringify(record));
-  jdata.fotos = (record.fotos||[]).map((f,i)=>({
+  const jdata  = JSON.parse(JSON.stringify(record));
+  jdata.fotos  = (record.fotos||[]).map((f,i) => ({
     numero:i+1, filename:CameraModule.getFilenameForDrive(i),
     ruta_access:`Fotos\\${codigo}\\${CameraModule.getFilenameForDrive(i)}`,
     caption:f.caption||'', timestamp:f.timestamp, sizeKB:f.sizeKB,
   }));
-  await driveUploadFile(token, projectId, `${codigo}_seguimiento.json`,
+  await driveUploadFile(token, projectId,
+    `CNR_Seguimiento_${codigo}_${fecha}.json`,
     new Blob([JSON.stringify(jdata,null,2)], { type:'application/json' }), 'application/json');
 
   for (let i=0; i<(record.fotos||[]).length; i++) {
-    await driveUploadFile(token, projectId, CameraModule.getFilenameForDrive(i),
+    await driveUploadFile(token, projectId,
+      CameraModule.getFilenameForDrive(i),
       CameraModule.dataUrlToBlob(record.fotos[i].dataUrl), 'image/jpeg');
   }
 }
@@ -539,7 +552,8 @@ async function triggerSync() {
     const token = State.driveToken || await requestDriveToken();
     for (const record of unsynced) {
       await syncRecord(record, token);
-      record._synced = true; record._syncedAt = new Date().toISOString();
+      record._synced   = true;
+      record._syncedAt = new Date().toISOString();
       await dbPut(record);
     }
     State.records = await dbGetAll();
@@ -575,7 +589,7 @@ function renderRecordsList() {
       <p>${searchVal?'Pruebe otro término':'Cree un registro con "Nueva Ficha"'}</p></div>`;
     return;
   }
-  // Actualizar contador en botón Mis Fichas
+
   const fichasLabel = document.getElementById('mis-fichas-label');
   if (fichasLabel) {
     const total = State.records.length;
@@ -611,7 +625,6 @@ function renderRecordsList() {
       </div>
     `;
 
-    // Toque normal → abrir registro
     card.querySelector('.record-card-inner').addEventListener('click', () => {
       if (card.classList.contains('swiping-left')) {
         card.classList.remove('swiping-left');
@@ -621,17 +634,17 @@ function renderRecordsList() {
       renderRecordsList();
     });
 
-    // Desliz izquierda → mostrar botón eliminar
     bindSwipeDelete(card, record);
-
     container.appendChild(card);
   });
 }
 
 function updateSyncUI(state) {
-  const cfg = { online:{dot:'online',text:'En línea',btn:'Sincronizar'},
-                offline:{dot:'offline',text:'Sin conexión',btn:'Sin conexión'},
-                syncing:{dot:'syncing',text:'Sincronizando…',btn:'Sincronizando…'} }[state];
+  const cfg = {
+    online:  {dot:'online',  text:'En línea',       btn:'Sincronizar'},
+    offline: {dot:'offline', text:'Sin conexión',    btn:'Sin conexión'},
+    syncing: {dot:'syncing', text:'Sincronizando…',  btn:'Sincronizando…'},
+  }[state];
   if (!cfg) return;
   const dot=document.getElementById('status-dot'), text=document.getElementById('status-text'), btn=document.getElementById('sync-btn');
   if (dot)  dot.className    = `status-dot ${cfg.dot}`;
@@ -667,8 +680,9 @@ function escapeHtml(str) {
 
 function formatDateShort(iso) {
   if (!iso) return '';
-  try { return new Date(iso).toLocaleString('es-CL',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'}); }
-  catch { return iso; }
+  try {
+    return new Date(iso).toLocaleString('es-CL',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'});
+  } catch { return iso; }
 }
 
 /* ══════════════════════════════════════════════════════════
@@ -696,15 +710,13 @@ async function init() {
    ══════════════════════════════════════════════════════════ */
 function bindSwipeDelete(card, record) {
   let startX = 0, startY = 0, isDragging = false, longPressTimer = null;
-  const SWIPE_THRESHOLD    = 60;
-  const LONG_PRESS_DELAY   = 600;
+  const SWIPE_THRESHOLD  = 60;
+  const LONG_PRESS_DELAY = 600;
 
   card.addEventListener('touchstart', (e) => {
     startX = e.touches[0].clientX;
     startY = e.touches[0].clientY;
     isDragging = false;
-
-    // Press largo
     longPressTimer = setTimeout(() => {
       card.classList.add('press-long');
       showDeleteConfirm(record);
@@ -729,7 +741,6 @@ function bindSwipeDelete(card, record) {
     const dx = e.changedTouches[0].clientX - startX;
     if (dx < -SWIPE_THRESHOLD) {
       card.classList.add('swiping-left');
-      // Toque en zona roja → confirmar borrado
       card.querySelector('.record-card-delete-bg').addEventListener('click', () => {
         showDeleteConfirm(record);
       }, { once: true });
@@ -743,8 +754,8 @@ let _pendingDeleteRecord = null;
 
 function showDeleteConfirm(record) {
   _pendingDeleteRecord = record;
-  const modal    = document.getElementById('modal-confirm-delete');
-  const nameEl   = document.getElementById('modal-delete-name');
+  const modal  = document.getElementById('modal-confirm-delete');
+  const nameEl = document.getElementById('modal-delete-name');
   if (nameEl) nameEl.textContent =
     `${record.codigo_proyecto || 'Sin código'} — ${record.beneficiario || 'Sin beneficiario'}`;
   if (modal) modal.classList.add('open');
@@ -761,7 +772,6 @@ function bindFormEvents() {
   });
   document.getElementById('modal-ver-registros')?.addEventListener('click', () => {
     hidePostSaveModal();
-    // Abrir sidebar en tablet
     const sidebar = document.getElementById('records-sidebar');
     const overlay = document.getElementById('sidebar-overlay');
     if (window.innerWidth <= 900) {
@@ -776,7 +786,6 @@ function bindFormEvents() {
   document.getElementById('modal-delete-cancel')?.addEventListener('click', () => {
     document.getElementById('modal-confirm-delete')?.classList.remove('open');
     _pendingDeleteRecord = null;
-    // Cerrar desliz abierto
     document.querySelectorAll('.record-card.swiping-left').forEach(c => c.classList.remove('swiping-left'));
   });
   document.getElementById('modal-delete-confirm')?.addEventListener('click', async () => {
@@ -786,15 +795,14 @@ function bindFormEvents() {
       _pendingDeleteRecord = null;
     }
   });
-   // Botón Descartar / Cerrar
+
+  // Botón Descartar / Cerrar
   document.getElementById('discard-btn')?.addEventListener('click', () => {
     if (!State.currentRecord) return;
     const isNew = State.currentRecord._modified_count === 0;
     if (isNew) {
-      // Ficha nunca guardada → mostrar modal de confirmación
       document.getElementById('modal-confirm-discard')?.classList.add('open');
     } else {
-      // Ficha ya guardada → cerrar sin borrar
       State.currentRecord = null;
       document.getElementById('no-record-msg').style.display  = 'flex';
       document.getElementById('form-wrapper').style.display   = 'none';
@@ -812,7 +820,6 @@ function bindFormEvents() {
   document.getElementById('modal-discard-confirm')?.addEventListener('click', async () => {
     document.getElementById('modal-confirm-discard')?.classList.remove('open');
     if (!State.currentRecord) return;
-    // Eliminar de IndexedDB y memoria
     await dbDelete(State.currentRecord._id);
     State.records = State.records.filter(r => r._id !== State.currentRecord._id);
     State.currentRecord = null;
@@ -822,6 +829,7 @@ function bindFormEvents() {
     renderRecordsList();
     showToast('Ficha descartada', 'info');
   });
+
   // Botón eliminar en action bar
   document.getElementById('delete-btn')?.addEventListener('click', () => {
     if (!State.currentRecord) return;
@@ -834,6 +842,7 @@ function bindFormEvents() {
     loadRecordToForm(State.currentRecord);
     renderRecordsList();
   });
+
   document.getElementById('save-btn')?.addEventListener('click', saveCurrentRecord);
   document.getElementById('export-csv-btn')?.addEventListener('click', () => { if (State.currentRecord) exportCSV(State.currentRecord); });
   document.getElementById('export-all-csv-btn')?.addEventListener('click', exportAllCSV);
@@ -841,6 +850,7 @@ function bindFormEvents() {
   document.getElementById('sync-btn')?.addEventListener('click', triggerSync);
   document.getElementById('search-input')?.addEventListener('input', renderRecordsList);
   document.getElementById('gps-btn')?.addEventListener('click', getGeoLocation);
+
   document.getElementById('camera-btn')?.addEventListener('click', () => {
     if (!State.currentRecord) { showToast('Primero cree o guarde un registro','error'); return; }
     CameraModule.captureFromCamera((State.currentRecord.fotos||[]).length);
@@ -849,16 +859,19 @@ function bindFormEvents() {
     if (!State.currentRecord) { showToast('Primero cree o guarde un registro','error'); return; }
     CameraModule.selectFromGallery((State.currentRecord.fotos||[]).length);
   });
+
   document.querySelectorAll('.cumple-option').forEach(opt => {
     opt.addEventListener('click', () => {
       const input = opt.querySelector('input[type="radio"]');
       if (input) { input.checked=true; updateCumpleVisual(input.value); }
     });
   });
+
   document.getElementById('add-antecedente')?.addEventListener('click', () =>
     addDynamicItem(document.getElementById('antecedentes-list')));
   document.getElementById('add-obs-general')?.addEventListener('click', () =>
     addDynamicItem(document.getElementById('obs-generales-list')));
+
   document.getElementById('install-btn')?.addEventListener('click', async () => {
     if (State.installPrompt) {
       State.installPrompt.prompt();
@@ -906,13 +919,13 @@ async function deleteRecord(record) {
 
 async function markDeletedInDrive(token, record) {
   const codigo    = record.codigo_proyecto || record._id.split('-')[0];
+  const fecha     = dateToISO(new Date());
   const rootId    = await driveGetOrCreateFolder(token, CONFIG.DRIVE_FOLDER_NAME);
   const projectId = await driveGetOrCreateFolder(token, codigo, rootId);
   const csv       = buildCSV([Object.assign({}, record, { _deleted: true, _deletedAt: new Date().toISOString() })]);
   await driveUploadFile(token, projectId,
-    'ELIMINADO_' + codigo + '_seguimiento.csv',
+    `CNR_Seguimiento_${codigo}_ELIMINADO_${fecha}.csv`,
     new Blob([csv], { type: 'text/csv;charset=utf-8;' }), 'text/csv');
 }
-
 
 document.addEventListener('DOMContentLoaded', init);
